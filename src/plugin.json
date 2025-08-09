@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "datasource",
+  "name": "OpenObserve",
+  "id": "grafana-openobserve-datasource",
+  "metrics": true,
+  "backend": true,
+  "executable": "gpx_open_observe",
+  "alerting": true,
+  "logs": true,
+  "info": {
+    "description": "grafana datasource plugin for openobserve",
+    "author": {
+      "name": "LinPr"
+    },
+    "keywords": [
+      "datasource",
+      "openobserve"
+    ],
+    "logos": {
+      "small": "img/logo.png",
+      "large": "img/logo.png"
+    },
+    "links": [],
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=10.4.0",
+    "plugins": []
+  }
+}
