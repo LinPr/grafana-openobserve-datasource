@@ -22,6 +22,7 @@ export class OpenObserveDataSource extends DataSourceWithBackend<OpenObserveQuer
     db: DB;
     dataset: string;
     queryType: string;
+    enableSSE: boolean;
     completionProvider: LanguageCompletionProvider | undefined;
 
     constructor(private instanceSettings: DataSourceInstanceSettings<OpenObserveOptions>) {
@@ -30,10 +31,15 @@ export class OpenObserveDataSource extends DataSourceWithBackend<OpenObserveQuer
         this.dataset = this.instanceSettings.jsonData.database;
         this.variables = new OpenObserveVariableSupport(this);
         this.queryType = "";
+        this.enableSSE = true;
     }
 
     setQueryType(queryType: string) {
         this.queryType = queryType;
+    }
+
+    setEnableSSE(enableSSE: boolean) {
+        this.enableSSE = enableSSE;
     }
 
     /**
@@ -52,6 +58,7 @@ export class OpenObserveDataSource extends DataSourceWithBackend<OpenObserveQuer
             ...query,
             rawSql: replace(query.rawSql ?? '', scopedVars) ?? '',
             adhocFilters: filters ?? [],
+            enableSSE: query.enableSSE ?? this.enableSSE,
             // queryType: getTemplateSrv().replace(query.queryType, scopedVars),
         };
     }

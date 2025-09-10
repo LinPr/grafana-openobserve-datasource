@@ -20,6 +20,7 @@ type SearchRequestParam struct {
 	StreamType   string `json:"stream_type"`
 	SearchType   string `json:"search_type"`
 	UseCache     bool   `json:"use_cache"`
+	EnableSSE    bool   `json:"enable_sse"`
 }
 
 // SearchRequestBody defines the body of the OpenObserve search request
