@@ -10,10 +10,12 @@ export interface OpenObserveQuery extends SQLQuery {
     editorMode?: EditorMode;
     // streamType?: string;
     adhocFilters?: AdHocVariableFilter[];
+    enableSSE?: boolean;
 }
 
 export const DEFAULT_QUERY: Partial<OpenObserveQuery> = {
-    queryType: "logs"
+    queryType: "logs",
+    enableSSE: true
 };
 
 /**

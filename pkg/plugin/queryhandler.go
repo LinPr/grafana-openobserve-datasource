@@ -99,7 +99,6 @@ func (ds *Datasource) queryFallback(ctx context.Context, q concurrent.Query) bac
 		}
 	}
 
-	log.DefaultLogger.Debug("===== 2222222222222222222222222222t", "rawSql", searchReqBody.Sql)
 	frame, err := ds.fallbackSelectFrom(searchReqParam, searchReqBody)
 	if err != nil {
 		return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("fallbackSelectFrom error: %v", err.Error()))
@@ -166,6 +165,7 @@ type grafanaQueryModel struct {
 	QueryType    string                `json:"queryType"`  // logs, metrics, traces
 	SearchType   string                `json:"searchType"` // e.g., "ui", "api"
 	UseCache     bool                  `json:"useCache"`   // Whether to use cache or not
+	EnableSSE    bool                  `json:"enableSSE"`  // Whether to enable Server-Sent Events (SSE) for real-time data streaming
 	RawSql       string                `json:"rawSql"`
 	From         int64                 `json:"from"`
 	Size         int64                 `json:"size"`
@@ -227,6 +227,7 @@ func (ds *Datasource) prepareSearchRequest(q concurrent.Query) (*openobserve.Sea
 		StreamType:   gqm.QueryType,
 		SearchType:   gqm.SearchType,
 		UseCache:     gqm.UseCache,
+		EnableSSE:    gqm.EnableSSE,
 	}
 
 	searchReqBody := &openobserve.SearchRequestBody{

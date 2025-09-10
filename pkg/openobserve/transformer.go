@@ -193,6 +193,7 @@ func buildGraphModeDataFrame(tableResult *TableResult) (*data.Frame, error) {
 			for _, v := range tableResult.Table[header] {
 				switch v := v.(type) {
 				case string:
+					// time.DateTime
 					timestamp, err := time.Parse("2006-01-02T15:04:05", v) // original time format is RFC3339
 					if err != nil {
 						return nil, err

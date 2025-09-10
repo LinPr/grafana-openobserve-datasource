@@ -1,10 +1,12 @@
 package openobserve
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -34,10 +36,30 @@ func NewOpenObserveClient(baseUrl, username, password string) *OpenObserveClient
 // Search performs a search request to the OpenObserve API
 func (c *OpenObserveClient) Search(searchReqParam *SearchRequestParam, searchReqBody *SearchRequestBody) (*SearchResponse, error) {
 
+	// handle SSE request
+	if searchReqParam.EnableSSE {
+		req, err := c.newSSESearchRequest(searchReqParam, searchReqBody)
+		if err != nil {
+			return nil, err
+		}
+
+		log.DefaultLogger.Debug("http SSE request created", "request", req)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		return handleSSEResponse(resp)
+	}
+
+	// handle regular HTTP request
 	req, err := c.newSearchRequest(searchReqParam, searchReqBody)
 	if err != nil {
 		return nil, err
 	}
+
 	log.DefaultLogger.Debug("http request created", "request", req)
 
 	resp, err := c.httpClient.Do(req)
@@ -45,6 +67,11 @@ func (c *OpenObserveClient) Search(searchReqParam *SearchRequestParam, searchReq
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	return handleRegularResponse(resp)
+}
+
+func handleRegularResponse(resp *http.Response) (*SearchResponse, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
@@ -56,8 +83,43 @@ func (c *OpenObserveClient) Search(searchReqParam *SearchRequestParam, searchReq
 	if err := decoder.Decode(&searchResponse); err != nil {
 		return nil, err
 	}
-
+	log.DefaultLogger.Debug("Regular", "len(searchResponse.Hits)", len(searchResponse.Hits))
 	return &searchResponse, nil
+}
+
+func handleSSEResponse(resp *http.Response) (*SearchResponse, error) {
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("http response status code: %d", resp.StatusCode)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+		if strings.HasPrefix(line, "event: search_response_hits") {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return nil, err
+			}
+			hits := bytes.TrimPrefix(line, []byte("data: "))
+			var searchResponse SearchResponse
+			decoder := sonic.ConfigDefault.NewDecoder(bytes.NewBuffer(hits))
+			if err := decoder.Decode(&searchResponse); err != nil {
+				return nil, err
+			}
+			log.DefaultLogger.Debug("SSE", "len(searchResponse.Hits)", len(searchResponse.Hits))
+			return &searchResponse, nil
+		}
+	}
+	return nil, fmt.Errorf("no search_response_hits found in SSE response")
 }
 
 // newSearchRequest creates a new HTTP request for the search operation
@@ -89,6 +151,39 @@ func (c *OpenObserveClient) newSearchRequest(searchReqParam *SearchRequestParam,
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(c.username, c.password)
 	// req.Header.Set("Authorization", fmt.Sprintf("Basic %s", c.BasicAuth))
+
+	return req, nil
+}
+
+// newSearchRequest creates a new HTTP request for the search operation
+func (c *OpenObserveClient) newSSESearchRequest(searchReqParam *SearchRequestParam, searchReqBody *SearchRequestBody) (*http.Request, error) {
+	log.DefaultLogger.Debug("newSSESearchRequest called", "searchReqParam", searchReqParam, "searchReqBody", searchReqBody)
+	searchReqBodyBytes, err := sonic.Marshal(searchReqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	// construct the SSE search URL
+	searchUrl := fmt.Sprintf("%s/api/%s/_search_stream", c.BaseUrl, searchReqParam.Organization)
+
+	// create a new HTTP POST request with basic info
+	req, err := http.NewRequest(http.MethodPost, searchUrl, bytes.NewBuffer(searchReqBodyBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	// set query parameters
+	q := req.URL.Query()
+	q.Set("search_type", searchReqParam.SearchType)
+	q.Set("type", searchReqParam.StreamType)
+	q.Set("use_cache", fmt.Sprintf("%t", searchReqParam.UseCache))
+
+	req.URL.RawQuery = q.Encode()
+
+	// set http headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.SetBasicAuth(c.username, c.password)
 
 	return req, nil
 }
@@ -143,7 +238,6 @@ func (c *OpenObserveClient) HandleListStreams(rw http.ResponseWriter, req *http.
 		rw.Write([]byte(fmt.Sprintf(`{"error": "failed to list streams: %s"}`, err.Error())))
 		return
 	}
-
 
 	streamMap := make(map[string][]string, len(listStreamResp.List)) // stream --> []fields
 	for _, streamItem := range listStreamResp.List {
