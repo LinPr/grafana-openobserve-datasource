@@ -5,7 +5,7 @@
   ![GitHub](https://img.shields.io/github/license/LinPr/grafana-openobserve-datasource?style=flat-square)
   ![Grafana](https://img.shields.io/badge/Grafana-Compatible-orange?style=flat-square&logo=grafana)
   ![OpenObserve](https://img.shields.io/badge/OpenObserve-Supported-blue?style=flat-square)
-  ![Go](https://img.shields.io/badge/Go-1.24.1+-00ADD8?style=flat-square&logo=go)
+  ![Go](https://img.shields.io/badge/Go-1.24.6+-00ADD8?style=flat-square&logo=go)
   ![TypeScript](https://img.shields.io/badge/TypeScript-5.5.4+-3178C6?style=flat-square&logo=typescript)
   ![Node.js](https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js)
 </div>
@@ -156,7 +156,7 @@ You can use grafana variables and ad-hoc filters to filter result  that you care
 
 Before starting to develop the plugin, make sure you have:
 -  **Node.js**: Frontend, version 22 or higher
--  **Go**: Backend, version 1.24.1 or higher
+-  **Go**: Backend, version 1.24.6 or higher
 -  **OpenObserve**: Datasource, Versuion 0.14.7 or higher
 -  **Docker**：Run docker compose and starting a Grafana container instance with grafana_openobserve_datasource plugin inside for developing environment
 
