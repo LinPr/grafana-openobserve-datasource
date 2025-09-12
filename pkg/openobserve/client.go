@@ -92,6 +92,7 @@ func handleSSEResponse(resp *http.Response) (*SearchResponse, error) {
 		return nil, fmt.Errorf("http response status code: %d", resp.StatusCode)
 	}
 
+	var searchResponse SearchResponse
 	reader := bufio.NewReader(resp.Body)
 	for {
 		line, err := reader.ReadString('\n')
@@ -110,16 +111,16 @@ func handleSSEResponse(resp *http.Response) (*SearchResponse, error) {
 				return nil, err
 			}
 			hits := bytes.TrimPrefix(line, []byte("data: "))
-			var searchResponse SearchResponse
+			var partSearchResp SearchResponse
 			decoder := sonic.ConfigDefault.NewDecoder(bytes.NewBuffer(hits))
-			if err := decoder.Decode(&searchResponse); err != nil {
+			if err := decoder.Decode(&partSearchResp); err != nil {
 				return nil, err
 			}
-			log.DefaultLogger.Debug("SSE", "len(searchResponse.Hits)", len(searchResponse.Hits))
-			return &searchResponse, nil
+			log.DefaultLogger.Debug("SSE", "len(partSearchResp.Hits)", len(partSearchResp.Hits))
+			searchResponse.Hits = append(searchResponse.Hits, partSearchResp.Hits...)
 		}
 	}
-	return nil, fmt.Errorf("no search_response_hits found in SSE response")
+	return &searchResponse, nil
 }
 
 // newSearchRequest creates a new HTTP request for the search operation
