@@ -42,6 +42,10 @@ But this one provides more features than the official one.
 - **Multi-Type Stream Support**: Query logs, metrics, and traces from OpenObserve
 - **SQL Query Interface**: SQL query support with syntax highlighting and auto-completion
 - **Grafana Variables Support**: Ad-hoc filters and template variables support
+- **SSE Streaming Search Support**: SSE mode streaming search 
+
+### Notice
+Since the Grafana and Openoberve timestamp format are different, so if you need to render some chart with time(shuch as TimeSeries), you need to convert the OpenObserve retrurned timestamp to Grafana time format. You can do it either by renaming the timestamp with AS keyword in SQL, or you can use grafna transform functions.
 
 
 ## 🚀 Installation
@@ -147,9 +151,6 @@ You can use grafana variables and ad-hoc filters to filter result  that you care
 
 ![Dashboard variables](doc/screenshot/variables.gif)
 
-
-## 🛣️ Roadmap
-+  Trying to impliment streaming search in the future
   
 
 ## 🛠️ Development
