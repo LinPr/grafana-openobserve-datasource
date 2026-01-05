@@ -211,7 +211,8 @@ func (ds *Datasource) prepareSearchRequest(q concurrent.Query) (*openobserve.Sea
 	} else {
 		sql, err := ds.SqlParser.CompeleteSqlWithAdhocFilters(gqm.RawSql, filters)
 		if err != nil {
-			return nil, nil, fmt.Errorf("SqlParser.CompeleteSqlWithAdhocFilters error: %v", err.Error())
+			log.DefaultLogger.Warn("SqlParser failed, using RawSql", "error", err)
+			completedSql = gqm.RawSql
 		}
 		completedSql = sql
 		log.DefaultLogger.Debug("Completed SQL", "completedSql", completedSql)
