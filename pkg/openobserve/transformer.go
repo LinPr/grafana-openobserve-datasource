@@ -36,12 +36,11 @@ func NewTransformer() *Transformer {
 
 // TransformsStream transforms the OpenObserve search stream response into Grafana data frame
 func (t *Transformer) TransformStream(parsedSql *SQL, searchResponse *SearchResponse) (*data.Frame, error) {
-	if parsedSql.selectMode == SqlSelectALlColumns {
+	if parsedSql.selectMode == SqlSelectALlColumns || len(parsedSql.selectColumns) == 0 {
 		parsedSearchResult, err := parseSearchResponse(searchResponse)
 		if err != nil {
 			return nil, err
 		}
-
 		return buildLogModeDataFrame(parsedSearchResult)
 	}
 
