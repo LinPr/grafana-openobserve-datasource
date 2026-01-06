@@ -35,40 +35,61 @@ func NewOpenObserveClient(baseUrl, username, password string) *OpenObserveClient
 
 // Search performs a search request to the OpenObserve API
 func (c *OpenObserveClient) Search(searchReqParam *SearchRequestParam, searchReqBody *SearchRequestBody) (*SearchResponse, error) {
+	log.DefaultLogger.Debug("Search called", "enableSSE", searchReqParam.EnableSSE, "streamType", searchReqParam.StreamType, "organization", searchReqParam.Organization, "sql", searchReqBody.Sql)
 
 	// handle SSE request
 	if searchReqParam.EnableSSE {
+		log.DefaultLogger.Debug("Search: Using SSE mode")
 		req, err := c.newSSESearchRequest(searchReqParam, searchReqBody)
 		if err != nil {
+			log.DefaultLogger.Warn("Search: newSSESearchRequest error", "error", err)
 			return nil, err
 		}
 
-		log.DefaultLogger.Debug("http SSE request created", "request", req)
+		log.DefaultLogger.Debug("Search: SSE request created", "url", req.URL.String())
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			log.DefaultLogger.Warn("Search: SSE HTTP request error", "error", err)
 			return nil, err
 		}
 		defer resp.Body.Close()
 
-		return handleSSEResponse(resp)
+		log.DefaultLogger.Debug("Search: SSE response received", "statusCode", resp.StatusCode)
+		result, err := handleSSEResponse(resp)
+		if err != nil {
+			log.DefaultLogger.Warn("Search: handleSSEResponse error", "error", err)
+		} else {
+			log.DefaultLogger.Debug("Search: SSE response handled", "hitsCount", len(result.Hits))
+		}
+		return result, err
 	}
 
 	// handle regular HTTP request
+	log.DefaultLogger.Debug("Search: Using regular HTTP mode")
 	req, err := c.newSearchRequest(searchReqParam, searchReqBody)
 	if err != nil {
+		log.DefaultLogger.Warn("Search: newSearchRequest error", "error", err)
 		return nil, err
 	}
 
-	log.DefaultLogger.Debug("http request created", "request", req)
+	log.DefaultLogger.Debug("Search: Regular request created", "url", req.URL.String())
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		log.DefaultLogger.Warn("Search: Regular HTTP request error", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	return handleRegularResponse(resp)
+	log.DefaultLogger.Debug("Search: Regular response received", "statusCode", resp.StatusCode)
+	result, err := handleRegularResponse(resp)
+	if err != nil {
+		log.DefaultLogger.Warn("Search: handleRegularResponse error", "error", err)
+	} else {
+		log.DefaultLogger.Debug("Search: Regular response handled", "hitsCount", len(result.Hits))
+	}
+	return result, err
 }
 
 func handleRegularResponse(resp *http.Response) (*SearchResponse, error) {
@@ -88,38 +109,49 @@ func handleRegularResponse(resp *http.Response) (*SearchResponse, error) {
 }
 
 func handleSSEResponse(resp *http.Response) (*SearchResponse, error) {
+	log.DefaultLogger.Debug("handleSSEResponse called", "statusCode", resp.StatusCode)
+
 	if resp.StatusCode != http.StatusOK {
+		log.DefaultLogger.Warn("handleSSEResponse: Non-200 status code", "statusCode", resp.StatusCode)
 		return nil, fmt.Errorf("http response status code: %d", resp.StatusCode)
 	}
 
 	var searchResponse SearchResponse
 	reader := bufio.NewReader(resp.Body)
+	chunkCount := 0
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				log.DefaultLogger.Debug("handleSSEResponse: EOF reached", "totalChunks", chunkCount, "totalHits", len(searchResponse.Hits))
 				break
 			}
+			log.DefaultLogger.Warn("handleSSEResponse: ReadString error", "error", err)
 			return nil, err
 		}
 		if strings.HasPrefix(line, "event: search_response_hits") {
 			line, err := reader.ReadBytes('\n')
 			if err != nil {
 				if err == io.EOF {
+					log.DefaultLogger.Debug("handleSSEResponse: EOF in ReadBytes", "totalChunks", chunkCount, "totalHits", len(searchResponse.Hits))
 					break
 				}
+				log.DefaultLogger.Warn("handleSSEResponse: ReadBytes error", "error", err)
 				return nil, err
 			}
 			hits := bytes.TrimPrefix(line, []byte("data: "))
 			var partSearchResp SearchResponse
 			decoder := sonic.ConfigDefault.NewDecoder(bytes.NewBuffer(hits))
 			if err := decoder.Decode(&partSearchResp); err != nil {
+				log.DefaultLogger.Warn("handleSSEResponse: Decode error", "error", err)
 				return nil, err
 			}
-			log.DefaultLogger.Debug("SSE", "len(partSearchResp.Hits)", len(partSearchResp.Hits))
+			chunkCount++
+			log.DefaultLogger.Debug("SSE len(partSearchResp.Hits)", "len", len(partSearchResp.Hits), "chunk", chunkCount)
 			searchResponse.Hits = append(searchResponse.Hits, partSearchResp.Hits...)
 		}
 	}
+	log.DefaultLogger.Debug("handleSSEResponse: Completed", "totalChunks", chunkCount, "totalHits", len(searchResponse.Hits))
 	return &searchResponse, nil
 }
 

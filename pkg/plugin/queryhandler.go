@@ -46,33 +46,44 @@ func (ds *Datasource) handleFallback(ctx context.Context, req *backend.QueryData
 }
 
 func (ds *Datasource) queryStream(ctx context.Context, query concurrent.Query) backend.DataResponse {
+	log.DefaultLogger.Debug("queryStream called", "refId", query.DataQuery.RefID)
 
 	searchReqParam, searchReqBody, err := ds.prepareSearchRequest(query)
 	if err != nil {
+		log.DefaultLogger.Warn("queryStream: prepareSearchRequest error", "error", err, "refId", query.DataQuery.RefID)
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("prepareSearchRequest errpr: %v", err.Error()))
 	}
+	log.DefaultLogger.Debug("queryStream: prepareSearchRequest completed", "sql", searchReqBody.Sql, "streamType", searchReqParam.StreamType, "refId", query.DataQuery.RefID)
+
 	searchResponse, err := ds.openObserveClient.Search(searchReqParam, searchReqBody)
 	if err != nil {
+		log.DefaultLogger.Warn("queryStream: Search error", "error", err, "refId", query.DataQuery.RefID)
 		return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("openObserveClient.Search error: %v", err.Error()))
 	}
+	log.DefaultLogger.Debug("queryStream: Search completed", "hitsCount", len(searchResponse.Hits), "refId", query.DataQuery.RefID)
 
 	parsedSql, err := ds.SqlParser.ParseSql(searchReqBody.Sql)
 	if err != nil {
+		log.DefaultLogger.Warn("queryStream: ParseSql error", "error", err, "refId", query.DataQuery.RefID)
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("SqlParser.ParseSql error: %v", err.Error()))
 	}
+	log.DefaultLogger.Debug("queryStream: ParseSql completed", "refId", query.DataQuery.RefID)
 
-	log.DefaultLogger.Debug("About to call TransformStream", "hitsCount", len(searchResponse.Hits))
+	log.DefaultLogger.Debug("queryStream: About to call TransformStream", "hitsCount", len(searchResponse.Hits), "refId", query.DataQuery.RefID)
 
 	// transform the OpenObserve response data into Grafana data frame
 	// doc: https://grafana.com/developers/plugin-tools/introduction/data-frames
 	frame, err := ds.transformer.TransformStream(parsedSql, searchResponse)
 	if err != nil {
+		log.DefaultLogger.Warn("queryStream: TransformStream error", "error", err, "refId", query.DataQuery.RefID)
 		return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("transformer.TransformLogsStream error: %v", err.Error()))
 	}
+	log.DefaultLogger.Debug("queryStream: TransformStream completed", "frameRows", frame.Rows(), "refId", query.DataQuery.RefID)
 
 	frames := data.Frames{}
 	frames = append(frames, frame)
 
+	log.DefaultLogger.Debug("queryStream: Returning response", "framesCount", len(frames), "refId", query.DataQuery.RefID)
 	return backend.DataResponse{
 		Frames: frames,
 	}
@@ -82,13 +93,17 @@ func (ds *Datasource) queryStream(ctx context.Context, query concurrent.Query) b
 // queryFallback is a fallback handler for queries that do not match any specific type
 // here we use it to handle queries emitted by the Grfana dynamic variables feature
 func (ds *Datasource) queryFallback(ctx context.Context, q concurrent.Query) backend.DataResponse {
+	log.DefaultLogger.Debug("queryFallback called", "query", q.DataQuery)
+
 	searchReqParam, searchReqBody, err := ds.prepareSearchRequest(q)
 	if err != nil {
+		log.DefaultLogger.Warn("queryFallback: prepareSearchRequest error", "error", err)
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("prepareSearchRequest error: %v", err.Error()))
 	}
 
 	// If the rawSql is "\\dt" (postgresql style), fetch databease tables(openobserve streams)
 	if strings.HasPrefix(searchReqBody.Sql, "\\dt") {
+		log.DefaultLogger.Debug("queryFallback: Using fallbackDisplayTables")
 		frame, err := ds.fallbackDisplayTables(searchReqParam.Organization, searchReqBody.Sql)
 		if err != nil {
 			return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("fallbackDisplayTables error: %v", err.Error()))
@@ -101,8 +116,10 @@ func (ds *Datasource) queryFallback(ctx context.Context, q concurrent.Query) bac
 		}
 	}
 
+	log.DefaultLogger.Debug("queryFallback: Using fallbackSelectFrom", "sql", searchReqBody.Sql)
 	frame, err := ds.fallbackSelectFrom(searchReqParam, searchReqBody)
 	if err != nil {
+		log.DefaultLogger.Warn("queryFallback: fallbackSelectFrom error", "error", err)
 		return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("fallbackSelectFrom error: %v", err.Error()))
 	}
 
@@ -141,23 +158,32 @@ func (ds *Datasource) fallbackDisplayTables(organization string, rawSql string) 
 }
 
 func (ds *Datasource) fallbackSelectFrom(searchReqParam *openobserve.SearchRequestParam, searchReqBody *openobserve.SearchRequestBody) (*data.Frame, error) {
+	log.DefaultLogger.Debug("fallbackSelectFrom called", "searchReqParam", searchReqParam, "searchReqBody.Sql", searchReqBody.Sql)
+
 	// Perform the search request to OpenObserve
 	searchResponse, err := ds.openObserveClient.Search(searchReqParam, searchReqBody)
 	if err != nil {
+		log.DefaultLogger.Warn("fallbackSelectFrom: Search error", "error", err)
 		return nil, fmt.Errorf("openObserveClient.Search error: %v", err.Error())
 	}
+	log.DefaultLogger.Debug("fallbackSelectFrom: Search completed", "hitsCount", len(searchResponse.Hits))
 
 	parsedSql, err := ds.SqlParser.ParseSql(searchReqBody.Sql)
 	if err != nil {
+		log.DefaultLogger.Warn("fallbackSelectFrom: ParseSql error", "error", err)
 		return nil, fmt.Errorf("SqlParser.ParseSql error: %v", err.Error())
 	}
+	log.DefaultLogger.Debug("fallbackSelectFrom: ParseSql completed")
 
 	// transform the OpenObserve response data into Grafana data frame
 	// doc: https://grafana.com/developers/plugin-tools/introduction/data-frames
+	log.DefaultLogger.Debug("fallbackSelectFrom: About to call TransformFallbackSelectFrom", "hitsCount", len(searchResponse.Hits))
 	frame, err := ds.transformer.TransformFallbackSelectFrom(parsedSql, searchResponse)
 	if err != nil {
+		log.DefaultLogger.Warn("fallbackSelectFrom: TransformFallbackSelectFrom error", "error", err)
 		return nil, fmt.Errorf("transformer.TransformFallbackSelectFrom error: %v", err.Error())
 	}
+	log.DefaultLogger.Debug("fallbackSelectFrom: TransformFallbackSelectFrom completed", "frameRows", frame.Rows())
 
 	return frame, nil
 }
@@ -187,17 +213,23 @@ type Organization struct {
 func (ds *Datasource) prepareSearchRequest(q concurrent.Query) (*openobserve.SearchRequestParam, *openobserve.SearchRequestBody, error) {
 	pCtx := q.PluginContext
 	query := q.DataQuery
-	log.DefaultLogger.Debug("prepareSearchRequest called", "query", query, "dataSourceInstanceSettings", pCtx.DataSourceInstanceSettings)
+	log.DefaultLogger.Debug("prepareSearchRequest called", "refId", query.RefID, "queryType", query.QueryType)
+
 	var organization Organization
 	if err := json.Unmarshal(pCtx.DataSourceInstanceSettings.JSONData, &organization); err != nil {
+		log.DefaultLogger.Warn("prepareSearchRequest: Failed to unmarshal JSONData", "error", err)
 		return nil, nil, err
 	}
+	log.DefaultLogger.Debug("prepareSearchRequest: Organization loaded", "database", organization.Database, "refId", query.RefID)
+
 	// Unmarshal the JSON into our queryModel.
 	var gqm grafanaQueryModel
 
 	if err := json.Unmarshal(query.JSON, &gqm); err != nil {
+		log.DefaultLogger.Warn("prepareSearchRequest: Failed to unmarshal query JSON", "error", err, "refId", query.RefID)
 		return nil, nil, fmt.Errorf("json unmarshal query error: %v", err.Error())
 	}
+	log.DefaultLogger.Debug("prepareSearchRequest: Query model loaded", "queryType", gqm.QueryType, "rawSql", gqm.RawSql, "refId", query.RefID)
 	filters := make([]openobserve.WhereFilter, 0, len(gqm.AdHocFilters))
 	for _, filter := range gqm.AdHocFilters {
 		filters = append(filters, openobserve.WhereFilter{
@@ -227,6 +259,8 @@ func (ds *Datasource) prepareSearchRequest(q concurrent.Query) (*openobserve.Sea
 	gqm.UseCache = true                       // Default to using cache
 	gqm.Size = 200                            // default search result size to 200
 
+	log.DefaultLogger.Debug("prepareSearchRequest: Setting request params", "queryType", gqm.QueryType, "streamType", gqm.QueryType, "enableSSE", gqm.EnableSSE, "refId", query.RefID)
+
 	searchReqParam := &openobserve.SearchRequestParam{
 		Organization: organization.Database,
 		StreamType:   gqm.QueryType,
@@ -234,6 +268,7 @@ func (ds *Datasource) prepareSearchRequest(q concurrent.Query) (*openobserve.Sea
 		UseCache:     gqm.UseCache,
 		EnableSSE:    gqm.EnableSSE,
 	}
+	log.DefaultLogger.Debug("prepareSearchRequest: SearchRequestParam created", "organization", searchReqParam.Organization, "streamType", searchReqParam.StreamType, "enableSSE", searchReqParam.EnableSSE, "refId", query.RefID)
 
 	searchReqBody := &openobserve.SearchRequestBody{
 		Query: openobserve.Query{
