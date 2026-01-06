@@ -105,8 +105,6 @@ func (t *Transformer) TransformFallbackSelectFrom(parsedSql *SQL, searchResponse
 }
 
 func parseSearchResponse(searchResponse *SearchResponse) (*ParsedSearchResult, error) {
-	log.DefaultLogger.Debug("parseSearchResponse called", "hitsCount", len(searchResponse.Hits))
-
 	Items := make([]Item, 0, len(searchResponse.Hits))
 
 	for _, hit := range searchResponse.Hits {
@@ -138,15 +136,12 @@ func parseSearchResponse(searchResponse *SearchResponse) (*ParsedSearchResult, e
 		return Items[i].TimeStamp > Items[j].TimeStamp
 	})
 
-	log.DefaultLogger.Debug("parseSearchResponse: Completed", "itemsCount", len(Items))
 	return &ParsedSearchResult{
 		Items: Items,
 	}, nil
 }
 
 func parseSearchResponseToTable(columns []string, searchResponse *SearchResponse) (*TableResult, error) {
-	log.DefaultLogger.Debug("parseSearchResponseToTable called", "columnsCount", len(columns), "columns", columns, "hitsCount", len(searchResponse.Hits))
-
 	// build data table
 	table := make(map[string][]any, len(columns))
 	for _, column := range columns {
@@ -186,19 +181,6 @@ func parseSearchResponseToTable(columns []string, searchResponse *SearchResponse
 		}
 	}
 
-	log.DefaultLogger.Debug("parseSearchResponseToTable: Completed", "headersCount", len(columns), "tableRows", len(table))
-	if len(table) > 0 {
-		// Get row count from first column
-		firstCol := ""
-		for col := range table {
-			firstCol = col
-			break
-		}
-		if firstCol != "" {
-			log.DefaultLogger.Debug("parseSearchResponseToTable: Table dimensions", "rows", len(table[firstCol]), "columns", len(table))
-		}
-	}
-
 	return &TableResult{
 		Headers: columns,
 		Table:   table,
@@ -206,8 +188,6 @@ func parseSearchResponseToTable(columns []string, searchResponse *SearchResponse
 }
 
 func buildLogModeDataFrame(parsedSearchResult *ParsedSearchResult) (*data.Frame, error) {
-	log.DefaultLogger.Debug("buildLogModeDataFrame called", "itemsCount", len(parsedSearchResult.Items))
-
 	frame := data.NewFrame("openobserve_data_frame")
 	frame.Meta = &data.FrameMeta{PreferredVisualization: data.VisTypeLogs}
 
@@ -223,24 +203,10 @@ func buildLogModeDataFrame(parsedSearchResult *ParsedSearchResult) (*data.Frame,
 	frame.Fields = append(frame.Fields, data.NewField("time", nil, timestampFields))
 	frame.Fields = append(frame.Fields, data.NewField("body", nil, bodyFields))
 	frame.Fields = append(frame.Fields, data.NewField("labels", nil, labelFields))
-
-	log.DefaultLogger.Debug("buildLogModeDataFrame: Completed", "fieldsCount", len(frame.Fields), "rows", frame.Rows())
 	return frame, nil
 }
 
 func buildGraphModeDataFrame(tableResult *TableResult) (*data.Frame, error) {
-	log.DefaultLogger.Debug("buildGraphModeDataFrame called", "headersCount", len(tableResult.Headers), "headers", tableResult.Headers)
-	if len(tableResult.Table) > 0 {
-		// Get row count from first column
-		firstCol := ""
-		for col := range tableResult.Table {
-			firstCol = col
-			break
-		}
-		if firstCol != "" {
-			log.DefaultLogger.Debug("buildGraphModeDataFrame: Table dimensions", "rows", len(tableResult.Table[firstCol]), "columns", len(tableResult.Table))
-		}
-	}
 
 	frame := data.NewFrame("openobserve_data_frame")
 	for _, header := range tableResult.Headers {
@@ -282,7 +248,5 @@ func buildGraphModeDataFrame(tableResult *TableResult) (*data.Frame, error) {
 		// Convert to interface{} for data.NewField
 		frame.Fields = append(frame.Fields, data.NewField(header, nil, columnSlice.Interface()))
 	}
-
-	log.DefaultLogger.Debug("buildGraphModeDataFrame: Completed", "fieldsCount", len(frame.Fields), "rows", frame.Rows())
 	return frame, nil
 }
