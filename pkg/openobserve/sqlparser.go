@@ -162,8 +162,11 @@ func (sp *SqlParser) ParseSql(sqlStr string) (*SQL, error) {
 		}
 	}
 
+	log.DefaultLogger.Debug("ParseSql column detection", "selectedColumns", selectedColumns, "filteredColumns", filteredColumns, "len(selectedColumns)", len(selectedColumns), "len(filteredColumns)", len(filteredColumns))
+
 	// If we have only "*" or no columns after filtering, use all columns mode
 	if len(selectedColumns) == 0 || (len(selectedColumns) == 1 && strings.Trim(strings.Trim(selectedColumns[0], "\""), " ") == "*") || len(filteredColumns) == 0 {
+		log.DefaultLogger.Debug("ParseSql: Using SqlSelectALlColumns mode")
 		return &SQL{
 			selectMode:     SqlSelectALlColumns,
 			selectColumns:  []string{}, // Empty means all columns
@@ -171,6 +174,7 @@ func (sp *SqlParser) ParseSql(sqlStr string) (*SQL, error) {
 		}, nil
 	}
 
+	log.DefaultLogger.Debug("ParseSql: Using SqlSelectSpecifiedcColumns mode", "columns", filteredColumns)
 	return &SQL{
 		selectMode:     SqlSelectSpecifiedcColumns,
 		selectColumns:  filteredColumns,

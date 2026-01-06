@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/bytedance/sonic/encoder"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
 
@@ -36,19 +37,28 @@ func NewTransformer() *Transformer {
 
 // TransformsStream transforms the OpenObserve search stream response into Grafana data frame
 func (t *Transformer) TransformStream(parsedSql *SQL, searchResponse *SearchResponse) (*data.Frame, error) {
+	log.DefaultLogger.Debug("TransformStream called", "selectMode", parsedSql.selectMode, "selectColumns", parsedSql.selectColumns, "hitsCount", len(searchResponse.Hits))
+
 	if parsedSql.selectMode == SqlSelectALlColumns || len(parsedSql.selectColumns) == 0 {
+		log.DefaultLogger.Debug("TransformStream: Using log mode (all columns)")
 		parsedSearchResult, err := parseSearchResponse(searchResponse)
 		if err != nil {
 			return nil, err
 		}
-		return buildLogModeDataFrame(parsedSearchResult)
+		frame, err := buildLogModeDataFrame(parsedSearchResult)
+		log.DefaultLogger.Debug("TransformStream: Log mode frame created", "frameRows", frame.Rows(), "err", err)
+		return frame, err
 	}
 
+	log.DefaultLogger.Debug("TransformStream: Using table mode (specified columns)", "columns", parsedSql.selectColumns)
 	tableResult, err := parseSearchResponseToTable(parsedSql.selectColumns, searchResponse)
 	if err != nil {
+		log.DefaultLogger.Debug("TransformStream: Table mode error", "error", err)
 		return nil, err
 	}
-	return buildGraphModeDataFrame(tableResult)
+	frame, err := buildGraphModeDataFrame(tableResult)
+	log.DefaultLogger.Debug("TransformStream: Table mode frame created", "frameRows", frame.Rows(), "headers", tableResult.Headers, "err", err)
+	return frame, err
 }
 
 // TransformFallbackDisplayTables transforms the OpenObserve list streams response into Grafana data frame
