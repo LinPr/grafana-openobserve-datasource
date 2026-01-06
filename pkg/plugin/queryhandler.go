@@ -61,6 +61,8 @@ func (ds *Datasource) queryStream(ctx context.Context, query concurrent.Query) b
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("SqlParser.ParseSql error: %v", err.Error()))
 	}
 
+	log.DefaultLogger.Debug("About to call TransformStream", "hitsCount", len(searchResponse.Hits))
+
 	// transform the OpenObserve response data into Grafana data frame
 	// doc: https://grafana.com/developers/plugin-tools/introduction/data-frames
 	frame, err := ds.transformer.TransformStream(parsedSql, searchResponse)
