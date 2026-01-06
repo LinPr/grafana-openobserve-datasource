@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"regexp"
+
 	"github.com/auxten/postgresql-parser/pkg/sql/parser"
 	"github.com/auxten/postgresql-parser/pkg/sql/sem/tree"
 	"github.com/auxten/postgresql-parser/pkg/walk"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/xwb1989/sqlparser"
-	"regexp"
 )
 
 const (
@@ -150,17 +151,29 @@ func (sp *SqlParser) ParseSql(sqlStr string) (*SQL, error) {
 		return nil, err
 	}
 
-	if len(selectedColumns) == 1 && selectedColumns[0] == "*" {
+	// Filter out "*" columns and normalize column names (strip quotes)
+	filteredColumns := make([]string, 0, len(selectedColumns))
+	for _, col := range selectedColumns {
+		// Strip quotes and whitespace
+		normalizedCol := strings.Trim(strings.Trim(col, "\""), " ")
+		// Skip "*" columns - they mean "select all"
+		if normalizedCol != "*" && normalizedCol != "" {
+			filteredColumns = append(filteredColumns, normalizedCol)
+		}
+	}
+
+	// If we have only "*" or no columns after filtering, use all columns mode
+	if len(selectedColumns) == 0 || (len(selectedColumns) == 1 && strings.Trim(strings.Trim(selectedColumns[0], "\""), " ") == "*") || len(filteredColumns) == 0 {
 		return &SQL{
 			selectMode:     SqlSelectALlColumns,
-			selectColumns:  selectedColumns,
+			selectColumns:  []string{}, // Empty means all columns
 			whereVariables: whereVariables,
 		}, nil
 	}
 
 	return &SQL{
 		selectMode:     SqlSelectSpecifiedcColumns,
-		selectColumns:  selectedColumns,
+		selectColumns:  filteredColumns,
 		whereVariables: whereVariables,
 	}, nil
 }
