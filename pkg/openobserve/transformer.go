@@ -78,11 +78,30 @@ func (t *Transformer) TransformFallbackDisplayTables(listStreamResp *ListStreamR
 // TransformFallbackSelectFrom transforms the OpenObserve search response into Grafana data frame
 // This is used when the user query a specific stream with select <columns> from SQL syntax
 func (t *Transformer) TransformFallbackSelectFrom(parsedSql *SQL, searchResponse *SearchResponse) (*data.Frame, error) {
+	log.DefaultLogger.Debug("TransformFallbackSelectFrom called", "selectMode", parsedSql.selectMode, "selectColumns", parsedSql.selectColumns, "hitsCount", len(searchResponse.Hits))
+
+	// Handle SELECT * the same way as TransformStream - use log mode
+	if parsedSql.selectMode == SqlSelectALlColumns || len(parsedSql.selectColumns) == 0 {
+		log.DefaultLogger.Debug("TransformFallbackSelectFrom: Using log mode (all columns)")
+		parsedSearchResult, err := parseSearchResponse(searchResponse)
+		if err != nil {
+			return nil, err
+		}
+		frame, err := buildLogModeDataFrame(parsedSearchResult)
+		log.DefaultLogger.Debug("TransformFallbackSelectFrom: Log mode frame created", "frameRows", frame.Rows(), "err", err)
+		return frame, err
+	}
+
+	// For specific columns, use table mode
+	log.DefaultLogger.Debug("TransformFallbackSelectFrom: Using table mode (specified columns)", "columns", parsedSql.selectColumns)
 	tableResult, err := parseSearchResponseToTable(parsedSql.selectColumns, searchResponse)
 	if err != nil {
+		log.DefaultLogger.Debug("TransformFallbackSelectFrom: Table mode error", "error", err)
 		return nil, err
 	}
-	return buildGraphModeDataFrame(tableResult)
+	frame, err := buildGraphModeDataFrame(tableResult)
+	log.DefaultLogger.Debug("TransformFallbackSelectFrom: Table mode frame created", "frameRows", frame.Rows(), "headers", tableResult.Headers, "err", err)
+	return frame, err
 }
 
 func parseSearchResponse(searchResponse *SearchResponse) (*ParsedSearchResult, error) {
