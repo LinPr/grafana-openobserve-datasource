@@ -82,17 +82,13 @@ func (ds *Datasource) queryStream(ctx context.Context, query concurrent.Query) b
 // queryFallback is a fallback handler for queries that do not match any specific type
 // here we use it to handle queries emitted by the Grfana dynamic variables feature
 func (ds *Datasource) queryFallback(ctx context.Context, q concurrent.Query) backend.DataResponse {
-	log.DefaultLogger.Debug("queryFallback called", "query", q.DataQuery)
-
 	searchReqParam, searchReqBody, err := ds.prepareSearchRequest(q)
 	if err != nil {
-		log.DefaultLogger.Warn("queryFallback: prepareSearchRequest error", "error", err)
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("prepareSearchRequest error: %v", err.Error()))
 	}
 
 	// If the rawSql is "\\dt" (postgresql style), fetch databease tables(openobserve streams)
 	if strings.HasPrefix(searchReqBody.Sql, "\\dt") {
-		log.DefaultLogger.Debug("queryFallback: Using fallbackDisplayTables")
 		frame, err := ds.fallbackDisplayTables(searchReqParam.Organization, searchReqBody.Sql)
 		if err != nil {
 			return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("fallbackDisplayTables error: %v", err.Error()))
@@ -105,10 +101,8 @@ func (ds *Datasource) queryFallback(ctx context.Context, q concurrent.Query) bac
 		}
 	}
 
-	log.DefaultLogger.Debug("queryFallback: Using fallbackSelectFrom", "sql", searchReqBody.Sql)
 	frame, err := ds.fallbackSelectFrom(searchReqParam, searchReqBody)
 	if err != nil {
-		log.DefaultLogger.Warn("queryFallback: fallbackSelectFrom error", "error", err)
 		return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("fallbackSelectFrom error: %v", err.Error()))
 	}
 
@@ -147,32 +141,23 @@ func (ds *Datasource) fallbackDisplayTables(organization string, rawSql string) 
 }
 
 func (ds *Datasource) fallbackSelectFrom(searchReqParam *openobserve.SearchRequestParam, searchReqBody *openobserve.SearchRequestBody) (*data.Frame, error) {
-	log.DefaultLogger.Debug("fallbackSelectFrom called", "searchReqParam", searchReqParam, "searchReqBody.Sql", searchReqBody.Sql)
-
 	// Perform the search request to OpenObserve
 	searchResponse, err := ds.openObserveClient.Search(searchReqParam, searchReqBody)
 	if err != nil {
-		log.DefaultLogger.Warn("fallbackSelectFrom: Search error", "error", err)
 		return nil, fmt.Errorf("openObserveClient.Search error: %v", err.Error())
 	}
-	log.DefaultLogger.Debug("fallbackSelectFrom: Search completed", "hitsCount", len(searchResponse.Hits))
 
 	parsedSql, err := ds.SqlParser.ParseSql(searchReqBody.Sql)
 	if err != nil {
-		log.DefaultLogger.Warn("fallbackSelectFrom: ParseSql error", "error", err)
 		return nil, fmt.Errorf("SqlParser.ParseSql error: %v", err.Error())
 	}
-	log.DefaultLogger.Debug("fallbackSelectFrom: ParseSql completed")
 
 	// transform the OpenObserve response data into Grafana data frame
 	// doc: https://grafana.com/developers/plugin-tools/introduction/data-frames
-	log.DefaultLogger.Debug("fallbackSelectFrom: About to call TransformFallbackSelectFrom", "hitsCount", len(searchResponse.Hits))
 	frame, err := ds.transformer.TransformFallbackSelectFrom(parsedSql, searchResponse)
 	if err != nil {
-		log.DefaultLogger.Warn("fallbackSelectFrom: TransformFallbackSelectFrom error", "error", err)
 		return nil, fmt.Errorf("transformer.TransformFallbackSelectFrom error: %v", err.Error())
 	}
-	log.DefaultLogger.Debug("fallbackSelectFrom: TransformFallbackSelectFrom completed", "frameRows", frame.Rows())
 
 	return frame, nil
 }
@@ -240,7 +225,38 @@ func (ds *Datasource) prepareSearchRequest(q concurrent.Query) (*openobserve.Sea
 	// TODO: set the default values for
 	gqm.SearchType = openobserve.SearchTypeUI // Default to UI search type if not specified
 	gqm.UseCache = true                       // Default to using cache
-	gqm.Size = 200                            // default search result size to 200
+
+	// Parse SQL to extract LIMIT value
+	parsedSql, err := ds.SqlParser.ParseSql(completedSql)
+	if err != nil {
+		log.DefaultLogger.Warn("prepareSearchRequest: Failed to parse SQL for LIMIT extraction", "error", err)
+		parsedSql = nil
+	}
+
+	// Determine the size to use:
+	// 1. If frontend explicitly set Size, use it (but cap at max)
+	// 2. If SQL has LIMIT clause, use that value (but cap at max)
+	// 3. Otherwise, use default of 200
+	const (
+		defaultSize int64 = 200
+		maxSize     int64 = 10000 // Maximum to prevent browser crashes and excessive memory usage
+	)
+
+	size := defaultSize
+	if gqm.Size > 0 {
+		// Frontend explicitly set a size
+		size = gqm.Size
+	} else if parsedSql != nil && parsedSql.Limit > 0 {
+		// SQL has a LIMIT clause
+		size = parsedSql.Limit
+		log.DefaultLogger.Debug("prepareSearchRequest: Using LIMIT from SQL", "limit", size)
+	}
+
+	// Cap the size at maximum to prevent browser crashes
+	if size > maxSize {
+		log.DefaultLogger.Warn("prepareSearchRequest: Size exceeds maximum, capping", "requested", size, "max", maxSize)
+		size = maxSize
+	}
 
 	searchReqParam := &openobserve.SearchRequestParam{
 		Organization: organization.Database,
@@ -256,7 +272,7 @@ func (ds *Datasource) prepareSearchRequest(q concurrent.Query) (*openobserve.Sea
 			StartTime: query.TimeRange.From.UnixMicro(),
 			EndTime:   query.TimeRange.To.UnixMicro(),
 			From:      gqm.From,
-			Size:      gqm.Size, // Default size, can be adjusted based on requirements
+			Size:      size, // Use parsed LIMIT or default, capped at maxSize
 		},
 		SearchType: openobserve.SearchTypeUI,
 		Timeout:    60, // default to 60 seconds timeout
