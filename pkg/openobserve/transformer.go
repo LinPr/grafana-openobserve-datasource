@@ -69,11 +69,23 @@ func (t *Transformer) TransformFallbackDisplayTables(listStreamResp *ListStreamR
 // TransformFallbackSelectFrom transforms the OpenObserve search response into Grafana data frame
 // This is used when the user query a specific stream with select <columns> from SQL syntax
 func (t *Transformer) TransformFallbackSelectFrom(parsedSql *SQL, searchResponse *SearchResponse) (*data.Frame, error) {
+	// Handle SELECT * the same way as TransformStream - use log mode
+	if parsedSql.selectMode == SqlSelectALlColumns || len(parsedSql.selectColumns) == 0 {
+		parsedSearchResult, err := parseSearchResponse(searchResponse)
+		if err != nil {
+			return nil, err
+		}
+		frame, err := buildLogModeDataFrame(parsedSearchResult)
+		return frame, err
+	}
+
+	// For specific columns, use table mode
 	tableResult, err := parseSearchResponseToTable(parsedSql.selectColumns, searchResponse)
 	if err != nil {
 		return nil, err
 	}
-	return buildGraphModeDataFrame(tableResult)
+	frame, err := buildGraphModeDataFrame(tableResult)
+	return frame, err
 }
 
 func parseSearchResponse(searchResponse *SearchResponse) (*ParsedSearchResult, error) {
