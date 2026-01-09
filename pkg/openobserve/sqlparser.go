@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"regexp"
+
 	"github.com/auxten/postgresql-parser/pkg/sql/parser"
 	"github.com/auxten/postgresql-parser/pkg/sql/sem/tree"
 	"github.com/auxten/postgresql-parser/pkg/walk"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/xwb1989/sqlparser"
-	"regexp"
 )
 
 const (
@@ -30,6 +31,7 @@ type SQL struct {
 	selectColumns  []string
 	whereVariables []string
 	CompletedSql   string
+	Limit          int64 // Extracted LIMIT value from SQL, 0 means no limit specified
 }
 
 const (
@@ -154,11 +156,15 @@ func (sp *SqlParser) ParseSql(sqlStr string) (*SQL, error) {
 		return nil, err
 	}
 
+	// Extract LIMIT value from SQL using sqlparser (more reliable for LIMIT extraction)
+	limitValue := extractLimitFromSql(sqlStr)
+
 	if len(selectedColumns) == 1 && selectedColumns[0] == "*" {
 		return &SQL{
 			selectMode:     SqlSelectALlColumns,
 			selectColumns:  selectedColumns,
 			whereVariables: whereVariables,
+			Limit:          limitValue,
 		}, nil
 	}
 
@@ -166,6 +172,7 @@ func (sp *SqlParser) ParseSql(sqlStr string) (*SQL, error) {
 		selectMode:     SqlSelectSpecifiedcColumns,
 		selectColumns:  selectedColumns,
 		whereVariables: whereVariables,
+		Limit:          limitValue,
 	}, nil
 }
 
@@ -231,4 +238,42 @@ func (v *Visitor) VisitPre(expr tree.Expr) (recurse bool, newExpr tree.Expr) {
 func (v *Visitor) VisitPost(expr tree.Expr) (newNode tree.Expr) {
 	// return expr
 	return nil
+}
+
+// extractLimitFromSql extracts the LIMIT value from SQL string using sqlparser
+func extractLimitFromSql(sqlStr string) int64 {
+	stmt, err := sqlparser.Parse(sqlStr)
+	if err != nil {
+		return 0 // Return 0 if parsing fails (means no limit or invalid SQL)
+	}
+
+	selectStmt, ok := stmt.(*sqlparser.Select)
+	if !ok {
+		return 0 // Not a SELECT statement
+	}
+
+	if selectStmt.Limit == nil {
+		return 0 // No LIMIT clause
+	}
+
+	// LIMIT can be: LIMIT n or LIMIT offset, n
+	// Rowcount is the second value if both present, or the only value if only one
+	if selectStmt.Limit.Rowcount == nil {
+		return 0
+	}
+
+	// Try to extract numeric value from the expression
+	// The Rowcount is an Expr, which could be a number or expression
+	// We'll try to convert it to string first, then parse as int
+	limitStr := sqlparser.String(selectStmt.Limit.Rowcount)
+
+	// Parse the string as int64
+	var limitValue int64
+	_, err = fmt.Sscanf(limitStr, "%d", &limitValue)
+	if err != nil {
+		log.DefaultLogger.Warn("extractLimitFromSql: Failed to parse LIMIT value", "limitStr", limitStr, "error", err)
+		return 0
+	}
+
+	return limitValue
 }

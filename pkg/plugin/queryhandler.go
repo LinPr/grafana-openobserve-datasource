@@ -220,7 +220,37 @@ func (ds *Datasource) prepareSearchRequest(q concurrent.Query) (*openobserve.Sea
 	// TODO: set the default values for
 	gqm.SearchType = openobserve.SearchTypeUI // Default to UI search type if not specified
 	gqm.UseCache = true                       // Default to using cache
-	gqm.Size = 200                            // default search result size to 200
+
+	// Parse SQL to extract LIMIT value
+	parsedSql, err := ds.SqlParser.ParseSql(completedSql)
+	if err != nil {
+		log.DefaultLogger.Warn("prepareSearchRequest: Failed to parse SQL for LIMIT extraction", "error", err)
+		parsedSql = nil
+	}
+
+	// Determine the size to use:
+	// 1. If frontend explicitly set Size, use it (but cap at max)
+	// 2. If SQL has LIMIT clause, use that value (but cap at max)
+	// 3. Otherwise, use default of 200
+	const (
+		defaultSize int64 = 200
+		maxSize     int64 = 10000 // Maximum to prevent browser crashes and excessive memory usage
+	)
+
+	size := defaultSize
+	if gqm.Size > 0 {
+		// Frontend explicitly set a size
+		size = gqm.Size
+	} else if parsedSql != nil && parsedSql.Limit > 0 {
+		// SQL has a LIMIT clause
+		size = parsedSql.Limit
+	}
+
+	// Cap the size at maximum to prevent browser crashes
+	if size > maxSize {
+		log.DefaultLogger.Warn("prepareSearchRequest: Size exceeds maximum, capping", "requested", size, "max", maxSize)
+		size = maxSize
+	}
 
 	searchReqParam := &openobserve.SearchRequestParam{
 		Organization: organization.Database,
@@ -236,7 +266,7 @@ func (ds *Datasource) prepareSearchRequest(q concurrent.Query) (*openobserve.Sea
 			StartTime: query.TimeRange.From.UnixMicro(),
 			EndTime:   query.TimeRange.To.UnixMicro(),
 			From:      gqm.From,
-			Size:      gqm.Size, // Default size, can be adjusted based on requirements
+			Size:      size, // Use parsed LIMIT or default, capped at maxSize
 		},
 		SearchType: openobserve.SearchTypeUI,
 		Timeout:    60, // default to 60 seconds timeout
