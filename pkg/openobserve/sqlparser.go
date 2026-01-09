@@ -33,22 +33,26 @@ type SQL struct {
 }
 
 const (
-	Equals        = "="
-	NotEqual      = "!="
-	MatchRegex    = "=~"
-	NotMatchRegex = "!~"
-	LessThan      = "<"
-	GreaterThan   = ">"
+	Equals             = "="
+	NotEqual           = "!="
+	MatchRegex         = "=~"
+	NotMatchRegex      = "!~"
+	LessThan           = "<"
+	GreaterThan        = ">"
+	GreaterThanOrEqual = ">="
+	LessThanOrEqual    = "<="
 )
 
 // OperatorMap key = adhoc operator, value = postgresql operator
 var OperatorMap = map[string]string{
-	Equals:        "=",
-	NotEqual:      "<>",
-	MatchRegex:    "~",
-	NotMatchRegex: "!~",
-	LessThan:      "<",
-	GreaterThan:   ">",
+	Equals:             "=",
+	NotEqual:           "<>",
+	MatchRegex:         "~",
+	NotMatchRegex:      "!~",
+	LessThan:           "<",
+	GreaterThan:        ">",
+	GreaterThanOrEqual: ">=",
+	LessThanOrEqual:    "<=",
 }
 
 // WhereFilter represents a filter condition in the WHERE clause
