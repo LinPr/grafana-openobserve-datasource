@@ -75,8 +75,7 @@ func (t *Transformer) TransformFallbackSelectFrom(parsedSql *SQL, searchResponse
 		if err != nil {
 			return nil, err
 		}
-		frame, err := buildLogModeDataFrame(parsedSearchResult)
-		return frame, err
+		return buildLogModeDataFrame(parsedSearchResult)
 	}
 
 	// For specific columns, use table mode
@@ -84,8 +83,7 @@ func (t *Transformer) TransformFallbackSelectFrom(parsedSql *SQL, searchResponse
 	if err != nil {
 		return nil, err
 	}
-	frame, err := buildGraphModeDataFrame(tableResult)
-	return frame, err
+	return buildGraphModeDataFrame(tableResult)
 }
 
 func parseSearchResponse(searchResponse *SearchResponse) (*ParsedSearchResult, error) {
