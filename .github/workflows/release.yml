@@ -28,6 +28,6 @@ jobs:
         # Usage of GRAFANA_API_KEY is deprecated, prefer `policy_token` option above
         #grafana_token: $
         with:
-          go-version: "1.24.1" 
+          go-version: "1.24.6" 
           node-version: "22"
           backend-target: "build:linux build:darwin build:darwinarm64 build:linuxarm64"
