@@ -8,7 +8,9 @@ datasources:
     orgId: 1
     version: 1
     editable: true
+    url: 'http://localhost:8000'
+    user: 'user'
     jsonData:
-      path: '/resources'
+      database: 'default' # organization
     secureJsonData:
-      apiKey: 'api-key'
+      password: 'password'
