@@ -1,9 +1,12 @@
 import { DataSourcePlugin } from '@grafana/data';
-import { OpenObserveDataSource } from './datasource';
-import { OpenObserveQuery, OpenObserveOptions } from './types';
-import { QueryEditorSQL } from 'components/QueryEditor';
-import { ConfigEditorSql } from 'components/ConfigEditor';
 
-export const plugin = new DataSourcePlugin<OpenObserveDataSource, OpenObserveQuery, OpenObserveOptions>(OpenObserveDataSource)
-  .setConfigEditor(ConfigEditorSql)
+import { ConfigEditor } from './components/ConfigEditor';
+import { QueryEditorSQL } from './components/QueryEditor';
+import { OpenObserveDataSource } from './datasource';
+import { OpenObserveOptions, OpenObserveQuery } from './types';
+
+export const plugin = new DataSourcePlugin<OpenObserveDataSource, OpenObserveQuery, OpenObserveOptions>(
+  OpenObserveDataSource
+)
+  .setConfigEditor(ConfigEditor)
   .setQueryEditor(QueryEditorSQL);

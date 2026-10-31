@@ -1,183 +1,218 @@
-// import { DataFrame, DataFrameView, DataSourceInstanceSettings, ScopedVars, TimeRange } from '@grafana/data';
-import { CoreApp, DataSourceInstanceSettings, ScopedVars, AdHocVariableFilter, DataSourceGetTagKeysOptions, GetTagResponse, MetricFindValue, DataSourceGetTagValuesOptions } from '@grafana/data';
 import {
-    // BackendDataSourceResponse,
-    DataSourceWithBackend,
-    // getTemplateSrv,
-    // FetchResponse,
-    // getBackendSrv,
-    // toDataQueryResponse,
-} from '@grafana/runtime';
-// import { DB, QueryFormat, SQLSelectableValue, ValidationResults, LanguageCompletionProvider } from '@grafana/plugin-ui';
-import { DB, SQLSelectableValue, ValidationResults, LanguageCompletionProvider } from '@grafana/plugin-ui';
-import { OpenObserveQuery, OpenObserveOptions, ListStreamResponse, DEFAULT_QUERY } from 'types';
-// import { buildColumnQuery, buildTableQuery } from './utils/queries';
-import { completionFetchColumns, completionFetchTables, getCompletionProvider } from './utils/completion';
-import { AGGREGATE_FNS } from './utils/constants';
-import { OpenObserveVariableSupport } from 'variables';
-import { replace } from 'utils/variables';
+  AdHocVariableFilter,
+  CoreApp,
+  DataSourceGetTagKeysOptions,
+  DataSourceGetTagValuesOptions,
+  DataSourceInstanceSettings,
+  GetTagResponse,
+  ScopedVars,
+} from '@grafana/data';
+import { DataSourceWithBackend } from '@grafana/runtime';
+import {
+  DEFAULT_QUERY,
+  OpenObserveOptions,
+  OpenObserveQuery,
+  SchemaField,
+  StreamColumns,
+  StreamType,
+} from './types';
+import { extractFirstTable } from './utils/completion';
+import { replace } from './utils/variables';
+import { OpenObserveVariableSupport } from './variables';
 
+/**
+ * Grafana data source for OpenObserve.
+ *
+ * All heavy lifting (SQL parsing, HTTP/SSE, frame building) happens in the Go
+ * backend; this class is the thin frontend facade: variable interpolation,
+ * tag keys/values for ad-hoc filters, template variable support and the small
+ * resource calls the query editor needs for completion.
+ */
 export class OpenObserveDataSource extends DataSourceWithBackend<OpenObserveQuery, OpenObserveOptions> {
-    annotations = {};
-    db: DB;
-    dataset: string;
-    queryType: string;
-    enableSSE: boolean;
-    completionProvider: LanguageCompletionProvider | undefined;
+  /**
+   * Annotation support. Grafana runs the annotation target through the normal
+   * query path and maps the resulting frame onto events, so forcing the
+   * "annotations" format is all that is needed.
+   */
+  annotations = {
+    getDefaultQuery: (): Partial<OpenObserveQuery> => ({
+      ...DEFAULT_QUERY,
+      format: 'annotations',
+    }),
+    prepareQuery: (annotation: { target?: Partial<OpenObserveQuery>; query?: string }): OpenObserveQuery | undefined => {
+      const target: Partial<OpenObserveQuery> = annotation.target ?? {};
+      // Older dashboards stored the SQL in a plain "query" string.
+      const rawSql = target.rawSql ?? annotation.query ?? '';
+      if (!rawSql && !target.expr) {
+        return undefined;
+      }
+      return { ...DEFAULT_QUERY, ...target, rawSql, format: 'annotations' } as OpenObserveQuery;
+    },
+  };
 
-    constructor(private instanceSettings: DataSourceInstanceSettings<OpenObserveOptions>) {
-        super(instanceSettings);
-        this.db = this.getDB();
-        this.dataset = this.instanceSettings.jsonData.database;
-        this.variables = new OpenObserveVariableSupport(this);
-        this.queryType = "";
-        this.enableSSE = true;
+  /** The organization configured on the instance. */
+  readonly organization: string;
+
+  /** Per-stream-type completion cache: the editor asks for it on every keypress. */
+  private streamCache = new Map<string, Promise<StreamColumns>>();
+
+  constructor(private instanceSettings: DataSourceInstanceSettings<OpenObserveOptions>) {
+    super(instanceSettings);
+    this.organization = this.instanceSettings.jsonData?.organization || this.instanceSettings.jsonData?.database || 'default';
+    this.variables = new OpenObserveVariableSupport(this);
+  }
+
+  getDefaultQuery(_app: CoreApp): Partial<OpenObserveQuery> {
+    return DEFAULT_QUERY;
+  }
+
+  /**
+   * Applies template variables and ad-hoc filters to a query before it is sent
+   * to the backend.
+   */
+  applyTemplateVariables(query: OpenObserveQuery, scopedVars: ScopedVars, filters?: AdHocVariableFilter[]): OpenObserveQuery {
+    const replaced = replace(query.rawSql ?? '', scopedVars) ?? '';
+    const expr = replace(query.expr ?? '', scopedVars) ?? '';
+    return {
+      ...query,
+      rawSql: replaced,
+      expr,
+      // Keep the ad-hoc filters the dashboard passed in; fall back to the ones
+      // stored on the query for Explore.
+      adhocFilters: filters ?? query.adhocFilters ?? [],
+    };
+  }
+
+  /** Template interpolation for variables embedded in the PromQL expression. */
+  interpolateVariablesInQueries(
+    queries: OpenObserveQuery[],
+    scopedVars: ScopedVars,
+    filters?: AdHocVariableFilter[]
+  ): OpenObserveQuery[] {
+    if (!queries.length) {
+      return queries;
     }
+    return queries.map(q => this.applyTemplateVariables(q, scopedVars, filters));
+  }
 
-    setQueryType(queryType: string) {
-        this.queryType = queryType;
+  filterQuery(query: OpenObserveQuery): boolean {
+    return Boolean(query.rawSql || query.expr);
+  }
+
+  /**
+   * Ad-hoc filter keys: the columns of the stream the query reads.
+   *
+   * `query.table` is only set when the stream was picked from the dropdown; a
+   * hand-written SQL usually leaves it empty, so the stream is read out of the
+   * statement. Without this the backend would answer with the *stream names*
+   * instead of the column names, which makes the ad-hoc filter unusable.
+   */
+  async getTagKeys(options?: DataSourceGetTagKeysOptions<OpenObserveQuery>): Promise<GetTagResponse> {
+    const query = options?.queries?.[0];
+    const streamType = query?.queryType ?? 'logs';
+    const params: Record<string, string> = {
+      organization: this.organization,
+      type: streamType,
+    };
+    const stream = query?.table ?? extractFirstTable(query?.rawSql ?? '');
+    if (stream) {
+      params.stream = stream;
     }
+    const keys: string[] = await this.getResource('/openobserve/tag-keys', params);
+    return { data: keys.map(text => ({ text })) } as GetTagResponse;
+  }
 
-    setEnableSSE(enableSSE: boolean) {
-        this.enableSSE = enableSSE;
+  /** Ad-hoc filter values: the distinct values of one column. */
+  async getTagValues(options: DataSourceGetTagValuesOptions<OpenObserveQuery>): Promise<GetTagResponse> {
+    const query = options?.queries?.[0];
+    const streamType = query?.queryType ?? 'logs';
+    const params: Record<string, string> = {
+      organization: this.organization,
+      type: streamType,
+      // Same fallback as getTagKeys: the stream may only exist in the SQL.
+      stream: query?.table ?? extractFirstTable(query?.rawSql ?? '') ?? '',
+      key: options.key,
+    };
+    if (options.timeRange) {
+      params.timeFrom = String(options.timeRange.from.valueOf() * 1000);
+      params.timeTo = String(options.timeRange.to.valueOf() * 1000);
     }
+    const values: string[] = await this.getResource('/openobserve/tag-values', params);
+    return { data: values.map(text => ({ text })) } as GetTagResponse;
+  }
 
-    /**
-     * getDefaultQuery set the default query for the OpenObserve datasource.
-     */
-    getDefaultQuery(app: CoreApp): Partial<OpenObserveQuery> {
-        return DEFAULT_QUERY
+  /** Metric names for PromQL completion and metric-aware variables. */
+  async listMetricNames(): Promise<string[]> {
+    return await this.getResource('/openobserve/metric-names', { organization: this.organization });
+  }
+
+  /**
+   * listStreams returns the stream names of one type.
+   */
+  async listStreams(streamType: StreamType | string = 'logs'): Promise<string[]> {
+    const columns = await this.listStreamColumns(streamType);
+    return Object.keys(columns).sort();
+  }
+
+  /**
+   * listStreamColumns returns stream -> columns, cached per stream type so the
+   * SQL editor's completion does not hammer the backend.
+   */
+  async listStreamColumns(streamType: StreamType | string = 'logs'): Promise<StreamColumns> {
+    const key = streamType || 'logs';
+    const cached = this.streamCache.get(key);
+    if (cached) {
+      return cached;
     }
-
-    /**
-     * Applies template variables to the given OpenObserveQuery object.
-     * Replaces any occurrences of template variables in the raw SQL string with their corresponding values.
-     */
-    applyTemplateVariables(query: OpenObserveQuery, scopedVars: ScopedVars, filters?: AdHocVariableFilter[]): OpenObserveQuery {
-        return {
-            ...query,
-            rawSql: replace(query.rawSql ?? '', scopedVars) ?? '',
-            adhocFilters: filters ?? [],
-            enableSSE: query.enableSSE ?? this.enableSSE,
-            // queryType: getTemplateSrv().replace(query.queryType, scopedVars),
-        };
-    }
-
-    getTagKeys(options?: DataSourceGetTagKeysOptions<OpenObserveQuery> | undefined): Promise<GetTagResponse> | Promise<MetricFindValue[]> {
-        // This method is not implemented in the original code, but it can be used to fetch tag keys if needed.
-        // For now, we return an empty array as a placeholder.
-        return Promise.resolve([]);
-    }
-
-    getTagValues(options: DataSourceGetTagValuesOptions<OpenObserveQuery>): Promise<GetTagResponse> | Promise<MetricFindValue[]> {
-        // This method is not implemented in the original code, but it can be used to fetch tag values if needed.
-        // For now, we return an empty array as a placeholder.
-        return Promise.resolve([]);
-    }
-
-
-    /**
-     * Filters the query based on the provided OpenObserveQuery object.
-     * Returns true if the query contains raw SQL, false otherwise.
-     */
-    filterQuery(query: OpenObserveQuery): boolean {
-        return Boolean(query.rawSql);
-    }
-
-    /**
-     * Validates a OpenObserve query.
-     * Returns a ValidationResults object.
-     */
-    validateQuery(query: OpenObserveQuery): ValidationResults {
-        return { query, isError: false, isValid: true, error: '' };
-    }
-
-    /**
-     * listStreamInfo used for creating dynamic variables
-     */
-    async listStreamInfo(streamType: string): Promise<ListStreamResponse> {
-        const params = {
-            organization: this.dataset,
-            type: streamType, // Specify the type of stream, e.g., 'logs',
-        };
-
-        return await this.getResource(`/openobserve/streams`, params);
-    }
-
-
-    /**
-     * fetchTables used for smart completion in the query editor, works in coder and builder mode
-     */
-    async fetchTables(): Promise<string[]> {
-        const listStreamInfoResp = await this.listStreamInfo(this.queryType);
-
-        const tableNames: string[] = [];
-        for (const [key] of Object.entries(listStreamInfoResp)) {
-            tableNames.push(key);
+    const request = this.getResource<StreamColumns>('/openobserve/streams', {
+      organization: this.organization,
+      type: key,
+      withSchema: 'true',
+    })
+      .then(columns => {
+        if (!columns || typeof columns !== 'object') {
+          return {};
         }
+        return columns;
+      })
+      .catch(error => {
+        // Drop the failed promise so the next keystroke retries.
+        this.streamCache.delete(key);
+        throw error;
+      });
+    this.streamCache.set(key, request);
+    return request;
+  }
 
-        tableNames.sort();
-        return tableNames;
+  /** fetchFields returns the completion entries for one stream. */
+  async fetchFields(streamType: StreamType | string, table?: string): Promise<Array<{ name: string; type: string; description: string }>> {
+    if (!table) {
+      return [];
     }
-
-    /**
-     * fetchFields used for smart completion in the query editor, works in coder and builder mode
-     */
-    async fetchFields(query: Partial<OpenObserveQuery>): Promise<SQLSelectableValue[]> {
-
-        const listStreamInfoResp = await this.listStreamInfo(query.queryType ?? "");
-        const selectedColumns: SQLSelectableValue[] = [];
-
-        for (const [streamKey, streamColumns] of Object.entries(listStreamInfoResp)) {
-            if (streamKey === query.table) {
-                if (Array.isArray(streamColumns)) {
-                    for (const columnName of streamColumns) {
-                        // avoid duplicatesfield    
-                        if (!selectedColumns.some(f => f.name === columnName)) {
-                            selectedColumns.push({ name: columnName, text: columnName, value: columnName, type: 'string', label: columnName });
-                        }
-                    }
-                }
-            }
-        }
-        selectedColumns.sort();
-        return selectedColumns;
+    const columns = await this.listStreamColumns(streamType);
+    const fields = columns[table];
+    if (!fields) {
+      return [];
     }
+    return fields.map(name => ({ name, type: 'string', description: name }));
+  }
 
-    /**
-     * Returns the DB object for the datasource.
-     * The DB object provides methods for interacting with the datasource.
-     */
-    getDB(): DB {
-        if (this.db !== undefined) {
-            return this.db;
-        }
-        return {
-            dsID: () => this.id,
-            lookup: () => Promise.resolve([]),
-            datasets: () => Promise.resolve([]),
-            functions: async () => Promise.resolve(AGGREGATE_FNS),
-            tables: async () => await this.fetchTables(),
-            fields: async (query: OpenObserveQuery) => await this.fetchFields(query),
-            validateQuery: async (query: OpenObserveQuery) => this.validateQuery(query),
-            getSqlCompletionProvider: () => this.getSqlCompletionProvider(this.db),
-            disableDatasets: true,
-        };
-    }
+  /** The typed schema of one stream, used by the query editor. */
+  async fetchSchema(streamType: StreamType | string, stream: string): Promise<SchemaField[]> {
+    return await this.getResource<SchemaField[]>('/openobserve/schema', {
+      organization: this.organization,
+      type: streamType,
+      stream,
+    });
+  }
 
-    /**
-     * Retrieves the SQL completion provider associated with the data source.
-     * If the provider is not already initialized, it will be created and returned.
-     */
-    getSqlCompletionProvider(db: DB): LanguageCompletionProvider {
-        if (this.completionProvider !== undefined) {
-            return this.completionProvider;
-        }
-        const args = {
-            getColumns: { current: (query: OpenObserveQuery) => completionFetchColumns(db, query) },
-            getTables: { current: () => completionFetchTables(db) },
-        };
-        this.completionProvider = getCompletionProvider(args);
-        return this.completionProvider;
-    }
+  /** Invalidate the completion cache, e.g. after creating a stream. */
+  clearCache(): void {
+    this.streamCache.clear();
+  }
+
+  /** Exposes the datasource for the variable support's query method. */
+  get instance(): DataSourceInstanceSettings<OpenObserveOptions> {
+    return this.instanceSettings;
+  }
 }

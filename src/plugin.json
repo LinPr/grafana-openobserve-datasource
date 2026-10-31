@@ -29,5 +29,8 @@
   "dependencies": {
     "grafanaDependency": ">=10.4.0",
     "plugins": []
-  }
+  },
+  "annotations": true,
+  "tracing": true,
+  "category": "logging"
 }
