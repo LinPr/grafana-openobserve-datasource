@@ -1,6 +1,6 @@
 module github.com/LinPr/grafana-openobserve-datasource
 
-go 1.27.1
+go 1.24.6
 
 require (
 	github.com/bytedance/sonic v1.15.5

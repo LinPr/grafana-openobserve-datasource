@@ -36,7 +36,8 @@ dashboard queries keep working.
 - New resource endpoints: `/openobserve/streams`, `/openobserve/schema`,
   `/openobserve/tag-keys`, `/openobserve/tag-values`, `/openobserve/metric-names`,
   `/openobserve/promql-metadata`.
-- `go` directive raised to 1.27.1 and `sonic` to v1.15.5 for Go 1.27 compatibility.
+- `sonic` raised to v1.15.5; the older v1.14.0 does not compile against Go 1.27.
+  The `go` directive stays at 1.24.6 so the CI toolchain keeps working.
 
 ### Frontend
 

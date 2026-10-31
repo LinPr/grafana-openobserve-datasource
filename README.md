@@ -5,7 +5,7 @@
   ![GitHub](https://img.shields.io/github/license/LinPr/grafana-openobserve-datasource?style=flat-square)
   ![Grafana](https://img.shields.io/badge/Grafana-10.4%2B-orange?style=flat-square&logo=grafana)
   ![OpenObserve](https://img.shields.io/badge/OpenObserve-Supported-blue?style=flat-square)
-  ![Go](https://img.shields.io/badge/Go-1.27.1+-00ADD8?style=flat-square&logo=go)
+  ![Go](https://img.shields.io/badge/Go-1.24.6+-00ADD8?style=flat-square&logo=go)
   ![TypeScript](https://img.shields.io/badge/TypeScript-5.5.4+-3178C6?style=flat-square&logo=typescript)
   ![Node.js](https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js)
 
@@ -315,7 +315,7 @@ correctly, so `WHERE service_name IN ($service_name)` just works.
 Requirements:
 
 - **Node.js** 22 or newer
-- **Go** 1.27.1 or newer
+- **Go** 1.24.6 or newer
 - **OpenObserve** 0.14.7 or newer
 - **Docker** for the local Grafana used during development
 
