@@ -45,3 +45,10 @@ ci/
 
 .eslintcache
 .vscode/
+# Local runtime caches (Grafana under test, Go build cache)
+.runtime/
+.gocache/
+
+# Intermediate frames for the README tour; regenerate with
+# tests/live/tour/make_tour.py
+tests/live/tour/frames/

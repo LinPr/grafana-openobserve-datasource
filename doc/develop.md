@@ -1,136 +1,160 @@
-# Grafana data source plugin template
+# Development guide
 
-This template is a starting point for building a Data Source Plugin for Grafana.
+How to build, run and test the OpenObserve data source plugin.
 
-## What are Grafana data source plugins?
+## Requirements
 
-Grafana supports a wide range of data sources, including Prometheus, MySQL, and even Datadog. There’s a good chance you can already visualize metrics from the systems you have set up. In some cases, though, you already have an in-house metrics solution that you’d like to add to your Grafana dashboards. Grafana Data Source Plugins enables integrating such solutions with Grafana.
+| Tool | Version | Notes |
+| ---- | ------- | ----- |
+| Go | 1.27.1+ | `go.mod` declares `go 1.27.1` |
+| Node.js | 22+ | used by webpack and jest |
+| Docker | any recent | optional, for the dev Grafana |
+| OpenObserve | 0.14.7+ | the plugin needs the `_search`, `_search_stream` and `prometheus` APIs |
 
-## Getting started
+## Layout
+
+```
+pkg/
+  main.go                  plugin entry point (datasource.Manage)
+  models/                  datasource settings, defaults, validation
+  openobserve/
+    api.go                 request/response types of the OpenObserve API
+    client.go              HTTP client: auth, timeout, SSE, schema cache
+    result.go              column model: typing, time detection, labels
+    sqlparser.go           SELECT analysis + ad-hoc filter injection
+    transformer.go         result set -> Grafana frames
+    prometheus.go          Prometheus compatible API client
+    testdata/              captured responses used by the tests
+  plugin/
+    datasource.go          instance lifecycle, query routing, health check
+    queryhandler.go        SQL query orchestration
+    promql.go              PromQL query
+    resources.go           editor resources (streams, schema, tag keys, ...)
+
+src/
+  module.ts                plugin registration
+  datasource.ts            DataSourceWithBackend facade
+  types.ts                 shared types and defaults
+  variables.ts             template variable support
+  components/              query editor, config editor, variable editor
+  utils/                   SQL interpolation and completion helpers
+```
+
+Everything that understands OpenObserve lives in Go. The frontend only collects
+parameters and renders results, which keeps the two sides able to evolve
+separately.
+
+## Build
 
 ### Backend
 
-1. Update [Grafana plugin SDK for Go](https://grafana.com/developers/plugin-tools/key-concepts/backend-plugins/grafana-plugin-sdk-for-go) dependency to the latest minor version:
+```bash
+go build ./...
+```
 
-   ```bash
-   go get -u github.com/grafana/grafana-plugin-sdk-go
-   go mod tidy
-   ```
+Cross-compile the binary Grafana loads:
 
-2. Build backend plugin binaries for Linux, Windows and Darwin:
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/gpx_open_observe_linux_amd64 ./pkg
+```
 
-   ```bash
-   mage -v
-   ```
+Or use mage, which builds every platform into `dist/`:
 
-3. List all available Mage targets for additional commands:
-
-   ```bash
-   mage -l
-   ```
+```bash
+mage -v            # all platforms
+mage build:linux   # just linux/amd64
+mage -l            # list targets
+```
 
 ### Frontend
 
-1. Install dependencies
+```bash
+npm install
+npm run build      # production bundle into dist/
+npm run dev        # watch mode
+```
 
-   ```bash
-   npm install
-   ```
+`npm run build` writes `dist/module.js` and copies `plugin.json`, `img/` and the
+README into `dist/`, so `dist/` is the directory Grafana loads.
 
-2. Build plugin in development mode and run in watch mode
+## Run against a real Grafana
 
-   ```bash
-   npm run dev
-   ```
+The plugin is unsigned, so Grafana has to be told to load it.
 
-3. Build plugin in production mode
+```bash
+export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource
+docker compose up --build
+```
 
-   ```bash
-   npm run build
-   ```
+The compose file mounts `dist/` into the Grafana container, so re-running
+`npm run build` is enough to pick up frontend changes; backend changes need the
+binary rebuilt.
 
-4. Run the tests (using Jest)
+Provision the data source instead of clicking through the UI by copying
+[provisioning/datasources/datasources.yml](../provisioning/datasources/datasources.yml)
+into Grafana's provisioning directory.
 
-   ```bash
-   # Runs the tests and watches for changes, requires git init first
-   npm run test
+## Test
 
-   # Exits after running all the tests
-   npm run test:ci
-   ```
+### Go
 
-5. Spin up a Grafana instance and run the plugin inside it (using Docker)
+```bash
+go test ./pkg/...
+go vet ./...
+```
 
-   ```bash
-   npm run server
-   ```
+The tests use `httptest` servers with responses captured from a real
+OpenObserve, which are stored in `pkg/openobserve/testdata/`. They cover the
+client (auth, token, TLS skip-verify, timeout, cancellation, SSE, errors), the
+SQL parser and ad-hoc filter injection, the frame builder (typing, time columns,
+multi-series, traces), the query handler, the health check and the resource
+endpoints.
 
-6. Run the E2E tests (using Playwright)
+### Frontend
 
-   ```bash
-   # Spins up a Grafana instance first that we tests against
-   npm run server
+```bash
+npm run typecheck
+npm run lint
+npm run test:ci
+```
 
-   # If you wish to start a certain Grafana version. If not specified will use latest by default
-   GRAFANA_VERSION=11.3.0 npm run server
+Frontend tests render the real components with `@testing-library/react`:
+`CodeEditor` (monaco) and `Select` are stubbed because neither works in jsdom,
+and `jest-setup.js` provides the `IntersectionObserver` / `ResizeObserver` stubs
+that `@grafana/ui` widgets expect.
 
-   # Starts the tests
-   npm run e2e
-   ```
+Jest is configured to ignore `.gocache/` and `.runtime/` (see `jest.config.js`),
+because both live inside the repository and contain thousands of foreign
+`package.json` files.
 
-7. Run the linter
+### Live verification
 
-   ```bash
-   npm run lint
+`tests/live/` contains scripts that exercise a running Grafana + OpenObserve:
 
-   # or
+```bash
+python3 tests/live/e2e_query.py <datasource-uid>   # every query shape, via /api/ds/query
+node tests/live/ui_dash_check.mjs                  # creates a dashboard and screenshots it
+```
 
-   npm run lint:fix
-   ```
+See [tests/live/README.md](../tests/live/README.md).
 
-# Distributing your plugin
+## Releasing
 
-When distributing a Grafana plugin either within the community or privately the plugin must be signed so the Grafana application can verify its authenticity. This can be done with the `@grafana/sign-plugin` package.
+```bash
+npm run build
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/gpx_open_observe_linux_amd64 ./pkg
+mage -v                       # or build each platform explicitly
+npx @grafana/sign-plugin@latest
+```
 
-_Note: It's not necessary to sign a plugin during development. The docker development environment that is scaffolded with `@grafana/create-plugin` caters for running the plugin without a signature._
+Bump `info.version` in `src/plugin.json` and add a `CHANGELOG.md` entry first.
 
-## Initial steps
+## Troubleshooting
 
-Before signing a plugin please read the Grafana [plugin publishing and signing criteria](https://grafana.com/legal/plugins/#plugin-publishing-and-signing-criteria) documentation carefully.
-
-`@grafana/create-plugin` has added the necessary commands and workflows to make signing and distributing a plugin via the grafana plugins catalog as straightforward as possible.
-
-Before signing a plugin for the first time please consult the Grafana [plugin signature levels](https://grafana.com/legal/plugins/#what-are-the-different-classifications-of-plugins) documentation to understand the differences between the types of signature level.
-
-1. Create a [Grafana Cloud account](https://grafana.com/signup).
-2. Make sure that the first part of the plugin ID matches the slug of your Grafana Cloud account.
-   - _You can find the plugin ID in the `plugin.json` file inside your plugin directory. For example, if your account slug is `acmecorp`, you need to prefix the plugin ID with `acmecorp-`._
-3. Create a Grafana Cloud API key with the `PluginPublisher` role.
-4. Keep a record of this API key as it will be required for signing a plugin
-
-## Signing a plugin
-
-### Using Github actions release workflow
-
-If the plugin is using the github actions supplied with `@grafana/create-plugin` signing a plugin is included out of the box. The [release workflow](./.github/workflows/release.yml) can prepare everything to make submitting your plugin to Grafana as easy as possible. Before being able to sign the plugin however a secret needs adding to the Github repository.
-
-1. Please navigate to "settings > secrets > actions" within your repo to create secrets.
-2. Click "New repository secret"
-3. Name the secret "GRAFANA_API_KEY"
-4. Paste your Grafana Cloud API key in the Secret field
-5. Click "Add secret"
-
-#### Push a version tag
-
-To trigger the workflow we need to push a version tag to github. This can be achieved with the following steps:
-
-1. Run `npm version <major|minor|patch>`
-2. Run `git push origin main --follow-tags`
-
-## Learn more
-
-Below you can find source code for existing app plugins and other related documentation.
-
-- [Basic data source plugin example](https://github.com/grafana/grafana-plugin-examples/tree/master/examples/datasource-basic#readme)
-- [`plugin.json` documentation](https://grafana.com/developers/plugin-tools/reference/plugin-json)
-- [How to sign a plugin?](https://grafana.com/developers/plugin-tools/publish-a-plugin/sign-a-plugin)
+| Symptom | Cause |
+| ------- | ----- |
+| `Plugin validation failed ... invalid signature` | `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS` is not set |
+| Panel shows "No data" but the query works in Explore | the stream type does not match the stream (a log stream queried as `metrics`); the backend reports this explicitly |
+| Time series renders but the X axis is wrong | the timestamp column was not recognised; set `Time field` in the datasource settings |
+| `authentication failed (HTTP 401)` | wrong user/password, or the organization does not exist |
+| Frontend build fails with `Combobox` not found | `@grafana/ui` is provided by Grafana at runtime; the plugin targets Grafana 10.4+, so it cannot use APIs added in 12.2 |

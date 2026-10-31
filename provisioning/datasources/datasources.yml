@@ -11,6 +11,16 @@ datasources:
     url: 'http://localhost:8000'
     user: 'user'
     jsonData:
-      database: 'default' # organization
+      # OpenObserve organization (the legacy "database" key still works)
+      organization: 'default'
+      authMethod: 'basic'
+      timeoutSeconds: 60
+      defaultLimit: 500
+      maxLimit: 10000
+      # Optional column overrides
+      timeField: ''
+      logMessageField: ''
+      logLevelField: ''
+      enablePrometheus: true
     secureJsonData:
       password: 'password'

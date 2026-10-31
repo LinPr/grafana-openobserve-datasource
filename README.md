@@ -1,197 +1,376 @@
-# 🔌Grafana OpenObserve Datasource Plugin 
+# 🔌 Grafana OpenObserve Datasource Plugin
 
 <div align="center">
 
   ![GitHub](https://img.shields.io/github/license/LinPr/grafana-openobserve-datasource?style=flat-square)
-  ![Grafana](https://img.shields.io/badge/Grafana-Compatible-orange?style=flat-square&logo=grafana)
+  ![Grafana](https://img.shields.io/badge/Grafana-10.4%2B-orange?style=flat-square&logo=grafana)
   ![OpenObserve](https://img.shields.io/badge/OpenObserve-Supported-blue?style=flat-square)
-  ![Go](https://img.shields.io/badge/Go-1.24.6+-00ADD8?style=flat-square&logo=go)
+  ![Go](https://img.shields.io/badge/Go-1.27.1+-00ADD8?style=flat-square&logo=go)
   ![TypeScript](https://img.shields.io/badge/TypeScript-5.5.4+-3178C6?style=flat-square&logo=typescript)
   ![Node.js](https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js)
+
 </div>
 
 ---
 
 ## 🛰️ Overview
 
-The grafana_openobserve_datasource is a Grafana data source plugin that enables querying logs, metrics, and traces data from OpenObserve via Grafana. It supports SQL-based queries and allows for simple dashboard creation.
+A Grafana data source plugin for [OpenObserve](https://github.com/openobserve/openobserve):
+query **logs**, **metrics** and **traces** with SQL, or use **PromQL** against
+OpenObserve's Prometheus compatible API, and put the results straight into
+Grafana panels, dashboards, variables and annotations.
 
-This plugin is non-official, the official one can be found [here](https://github.com/openobserve/openobserve-grafana-plugin).
-But this one provides more features than the official one.
+The plugin is non-official. The official one lives
+[here](https://github.com/openobserve/openobserve-grafana-plugin); this one aims to
+feel native to Grafana instead of exposing the raw API.
 
+> **All screenshots below are captured from a real Grafana 12.2 + OpenObserve
+> deployment, not mockups.**
 
-### 📸 Screenshots
+---
 
-#### Log search
-![Log Panel](doc/screenshot/log.png)
+## 📸 Screenshots
 
-#### Log Bar Chart
-![Log Bar Chart](doc/screenshot/log_bar_chart.png)
+### Feature tour
 
-#### Log Count Histogram
-![Log Count Histogram](doc/screenshot/log_count_time_series.png)
+A 16-second walkthrough recorded against a live Grafana + OpenObserve: logs,
+SQL metrics, PromQL, the trace waterfall, a mixed dashboard, template variables
+and the datasource settings.
 
-#### Metrics Pie Chart
-![Metrics Pie Chart](doc/screenshot/metrics_pie_chart.png)
+![Feature tour](doc/screenshot/tour.gif)
 
-#### Metrics Time Series
-![ Metrics Time Series](doc/screenshot/memory_usage.png)
- 
-### ✨ Key Features
-- **Easy Configuration**: Simple setup datasource in Grafana
-- **Multi-Type Stream Support**: Query logs, metrics, and traces from OpenObserve
-- **SQL Query Interface**: SQL query support with syntax highlighting and auto-completion
-- **Grafana Variables Support**: Ad-hoc filters and template variables support
-- **SSE Streaming Search Support**: SSE mode streaming search 
+> The GIF is downscaled to keep the README light (5.2 MB). The sharper
+> [WebP version](doc/screenshot/tour.webp) is only 1.2 MB and shows the same
+> tour at full size; every view is also available as a still image below.
 
-### Notice
-Since the Grafana and Openoberve timestamp format are different, so if you need to render some chart with time(shuch as TimeSeries), you need to convert the OpenObserve retrurned timestamp to Grafana time format. You can do it either by renaming the timestamp with AS keyword in SQL, or you can use grafna transform functions.
+### Logs in Explore
 
+Log lines render with their level colour, and the details pane shows every
+original column as an attribute:
+
+![Logs in Explore](doc/screenshot/explore_logs.png)
+
+### The query editor
+
+Stream type, query mode (SQL / PromQL), result format, stream picker, row limit,
+SSE and cache — the whole query surface in one row:
+
+![Query editor](doc/screenshot/query_editor.png)
+
+### Metrics over SQL, with automatic series labels
+
+`GROUP BY service_name` becomes one labelled series per service — no transform,
+no SQL aliasing tricks:
+
+![Metrics over SQL](doc/screenshot/explore_metrics_sql.png)
+
+### PromQL
+
+The same metric streams, queried through OpenObserve's Prometheus compatible API,
+so `rate()`, `histogram_quantile()` and label matchers all work:
+
+![PromQL](doc/screenshot/explore_promql.png)
+
+### Native trace view
+
+Trace frames are built in Grafana's span format, so Explore renders the real
+waterfall with per-span timings:
+
+![Trace view](doc/screenshot/explore_trace_view.png)
+
+### A dashboard with everything mixed
+
+Logs, stats, a pie chart, a stacked time series, PromQL and a trace table from a
+single data source:
+
+![Dashboard](doc/screenshot/dashboard_logs_metrics.png)
+
+### Template variables
+
+A variable is just a SQL query — the first column becomes the value. Multi-value
+selections are correctly quoted into `IN (...)`:
+
+![Dashboard variables](doc/screenshot/dashboard_variables.png)
+
+![Variable query editor](doc/screenshot/variable_query_editor.png)
+
+### Ad-hoc filters
+
+The filter keys are the real columns of the stream the panel queries, and the
+selected filter is injected server side as a SQL predicate — here
+`severity = 'ERROR'` narrows the log panel without touching the query:
+
+![Ad-hoc filter](doc/screenshot/dashboard_adhoc_filter.png)
+
+### Datasource settings
+
+Connection, authentication (basic auth or token), TLS, query limits and column
+mapping:
+
+![Datasource settings](doc/screenshot/config_editor.png)
+
+![Token authentication](doc/screenshot/config_editor_token.png)
+
+### Panel gallery
+
+| | |
+|---|---|
+| **Logs panel**<br>![Logs panel](doc/screenshot/log.png) | **Bar chart**<br>![Bar chart](doc/screenshot/log_bar_chart.png) |
+| **Log count histogram**<br>![Log count](doc/screenshot/log_count_time_series.png) | **Pie chart**<br>![Pie chart](doc/screenshot/metrics_pie_chart.png) |
+| **Memory usage**<br>![Memory usage](doc/screenshot/memory_usage.png) | |
+
+---
+
+## ✨ Key Features
+
+### Query
+
+- **Multi-type streams** — `logs`, `metrics` and `traces` in one data source
+- **SQL editor** with completion for stream names, columns, keywords and functions
+- **PromQL mode** against `/api/{org}/prometheus`, so metrics panels behave like a
+  native Prometheus data source
+- **Result formats**: `Auto`, `Logs`, `Table`, `Time series`, `Trace`, `Annotations`
+- **SSE streaming search** (`_search_stream`), with automatic fallback when a
+  deployment answers with plain JSON
+- **Row limits**: per-query limit → SQL `LIMIT` → datasource default, always capped
+  by the configured maximum
+
+### Frames that Grafana understands
+
+- **Automatic time columns** — `_timestamp` (microseconds), `start_time`
+  (nanoseconds) and ISO strings all become Grafana `time` fields, so time series
+  work without `AS gf_time` or transformations
+- **Series labels** — grouping columns become frame labels and therefore legend
+  entries
+- **Native logs frames** — `time`, `body`, `level`, `labels` plus every original
+  column as an attribute, so Explore shows level colours and full details
+- **Native trace frames** — spans are emitted with `traceID`, `spanID`,
+  `parentSpanID`, `serviceName`, ... so Grafana draws the waterfall
+- **Schema-aware column typing** — numbers, booleans, times and JSON are typed from
+  the stream schema, with a value-based cross-check so a computed alias never gets
+  the wrong type
+- **Annotations** — the `Annotations` format turns rows into dashboard annotations
+
+### Grafana integration
+
+- **Ad-hoc filters** injected server side as real SQL predicates: filters are
+  AND-ed, existing `OR` chains are parenthesised (so their meaning is preserved),
+  values are escaped, `number(123)` stays numeric, and `=~` / `!~` are translated
+  to OpenObserve's `~` / `!~`
+- **Template variables** with quote-aware SQL formatting and multi-value support
+- **Tag keys / tag values** read from the real stream schema, so ad-hoc variables
+  autocomplete against your actual columns
+- **Actionable errors** — the OpenObserve error body is surfaced (unknown stream,
+  bad credentials, unknown organization), and an empty result caused by a stream
+  type mismatch explains itself instead of showing a blank panel
+
+### Connection
+
+- Basic auth (user + password) **or** a token sent verbatim in `Authorization`
+- Configurable per-query timeout, cancellation propagation, TLS skip-verify
+- Health check reports the organization and stream count
+
+---
+
+## 📖 Documentation
+
+- [**Feature guide**](doc/features.md) — query modes, formats, column mapping,
+  variables, ad-hoc filters, annotations, and the SQL cookbook for logs / metrics /
+  traces
+- [**Development guide**](doc/develop.md) — build, run, and test the plugin
+- [**Changelog**](CHANGELOG.md) — what changed between versions
+
+---
 
 ## 🚀 Installation
 
 ### Linux
+
 1. Download the plugin from the [releases page](https://github.com/LinPr/grafana-openobserve-datasource/releases)
-2. Extract to your Grafana plugins directory, add environment variable *GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS* allows you load non-offical grafana pluin 
+2. Extract it into your Grafana plugins directory and allow unsigned plugins:
    ```bash
    # Default plugin path is /var/lib/grafana/plugins/
    sudo unzip grafana-openobserve-datasource.zip -d /var/lib/grafana/plugins/
    export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource
    ```
-3. Restart Grafana service
-
+3. Restart Grafana
 
 ### Docker
-1. Download the plugin from the [releases page](https://github.com/LinPr/grafana-openobserve-datasource/releases)
-2. Extract to your local working directory
-3. Start docker container with volume mount，add environment variable *GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS* allows you load non-offical grafana pluin 
+
+```bash
+docker run --rm \
+  -p 3000:3000 \
+  --name=grafana \
+  -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource \
+  -v /root/grafana/plugins/grafana-openobserve-datasource:/var/lib/grafana/plugins/grafana-openobserve-datasource \
+  grafana/grafana
+```
+
+### Kubernetes
+
+1. Build an init container that injects the plugin from [docker/Dockerfile](docker/Dockerfile).
+   `ARCH` selects `amd64` or `arm64`; `PROXY` sets a module proxy:
    ```bash
-   # Default plugin path is /var/lib/grafana/plugins/
-   docker run --rm \
-    -p 3000:3000 \
-    --name=grafana \
-    -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource \
-    -v  /root/grafana/plugins/grafana-openobserve-datasource:/var/lib/grafana/plugins/grafana-openobserve-datasource  \
-    grafana/grafana
+   export ARCH=amd64
+   export PROXY=http://<host>:<port>
+   docker build \
+     --target=runtime \
+     --build-arg ARCH=${ARCH} \
+     --build-arg PROXY=${PROXY} \
+     -t grafana-openobserve-datasource:latest-${ARCH} \
+     -f docker/Dockerfile \
+     .
    ```
-
-### Kubernete
-
-1. Run grafana workload in kubernetes cluster with init container to inject the plugin, you can build a init container with the [docker/Dockerfile](docker/Dockerfile), you can set the *ARCH* variable as amd64 or arm64 for different CPU architecture, and you probably need to set *PROXY* if you are in China du to some reasons.
-    ```bash
-      export ARCH=amd64
-      export PROXY=http://<host>:<port>
-      docker build \
-        --target=runtime \
-        --build-arg ARCH=${ARCH} \
-        --build-arg PROXY=${PROXY} \
-        -t grafana-openobserve-datasource:latest-${ARCH} \
-        -f docker/Dockerfile \
-        .
-    ```
-
-2. Set the environment variable GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS to allow non-officia plugin to be loaded when grafana init (The following example grafana deploy manifest is not completed, you need to complete it your self depending on your deploy environment).
+2. Copy the plugin into `${GF_PATHS_PLUGINS}` from an init container and allow it in
+   the Grafana container (the manifest below is a sketch, complete it for your
+   environment):
    ```yaml
+   initContainers:
+     - command:
+         - sh
+         - -c
+         - rm -rf ${GF_PATHS_PLUGINS}/grafana-openobserve-datasource && mkdir -p ${GF_PATHS_PLUGINS}
+           && cp -r grafana-openobserve-plugin ${GF_PATHS_PLUGINS}/grafana-openobserve-datasource
+       env:
+         - name: GF_PATHS_PLUGINS
+           value: /var/lib/grafana/plugins
+       image: your-registry/grafana-openobserve-datasource
 
-      initContainers:
-      - command:
-        - sh
-        - -c
-        - rm -rf ${GF_PATHS_PLUGINS}/grafana-openobserve-datasource && mkdir -p ${GF_PATHS_PLUGINS}
-          && cp -r grafana-openobserve-plugin ${GF_PATHS_PLUGINS}/grafana-openobserve-datasource
-        env:
-        - name: GF_PATHS_PLUGINS
-          value: /var/lib/grafana/plugins
-        image: your-registry/grafana-openobserve-datasource
-        .....
-
-      containers:
-      - env:
-        - name: GF_AUTH_LDAP_ENABLED
-          value: "true"
-        - name: GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS
-          value: grafana-openobserve-datasource
-        image: grafana/grafana:12.0.2
-        imagePullPolicy: IfNotPresent
-        name: grafana
-        ......
-   ```  
+   containers:
+     - env:
+         - name: GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS
+           value: grafana-openobserve-datasource
+       image: grafana/grafana:12.2.0
+       name: grafana
+   ```
 
 ### Build locally
- 
-1. Build backend:
-    ```bash
-    mage build:linux
-    ```
-2. Build frontend
-   ```bash
-   npm run build
-   ```
-3. Package
-   ```bash
-   cp -r dist openobserve-grafana-plugin
-   zip openobserve-grafana-plugin.zip openobserve-grafana-plugin
-   ```
 
+```bash
+mage build:linux     # backend binary into dist/
+npm install          # frontend dependencies
+npm run build        # frontend bundle into dist/
 
+cp -r dist openobserve-grafana-plugin
+zip -r openobserve-grafana-plugin.zip openobserve-grafana-plugin
+```
+
+---
 
 ## 🔍 Usage
-### Configuration
-![Configuration](doc/screenshot/configuration.png)
 
-### Explore
-#### query
-you can use sql code editor mode or builder mode to search for logs, metrics, and traces, but I recommand to use code editor mod for more flexibility. And you can take advantage of editor IntelliSense, press *ctrl+i(for windows user)* to .
-![Explore](doc/screenshot/explore.gif)
+### 1. Configure the data source
 
-#### variables
-You can use grafana variables and ad-hoc filters to filter result  that you care about.in Grafana Dashboard
+Point the URL at your OpenObserve server, fill in the organization (usually
+`default`) and choose how to authenticate. See
+[Datasource settings](doc/screenshot/config_editor.png) above.
 
-![Query variable](doc/screenshot/query_variable.png)
+### 2. Query logs
 
-![Dashboard variables](doc/screenshot/variables.gif)
+```sql
+SELECT * FROM "my_logs" LIMIT 500
+```
 
-  
+Set **Format** to `Logs` to get level colours and the full attribute list in
+Explore.
+
+### 3. Query metrics
+
+```sql
+SELECT histogram(_timestamp, '1 minute') AS ts,
+       avg(value) AS value,
+       service_name
+FROM "go_goroutine_count"
+GROUP BY ts, service_name
+ORDER BY ts
+```
+
+Set **Format** to `Time series`. One series per `service_name`, no transformations.
+
+Or switch **Query mode** to `PromQL` and write `go_goroutine_count` directly.
+
+### 4. Query traces
+
+```sql
+SELECT * FROM "my_traces" WHERE trace_id = '<id>' ORDER BY start_time
+```
+
+Set **Format** to `Trace` and Explore renders the waterfall.
+
+### 5. Use variables and ad-hoc filters
+
+A template variable is a SQL query whose first column is the value:
+
+```sql
+SELECT DISTINCT service_name AS "value" FROM "my_logs"
+```
+
+Then use `$service_name` in a query — the plugin quotes multi-value selections
+correctly, so `WHERE service_name IN ($service_name)` just works.
+
+---
 
 ## 🛠️ Development
 
-Before starting to develop the plugin, make sure you have:
--  **Node.js**: Frontend, version 22 or higher
--  **Go**: Backend, version 1.24.6 or higher
--  **OpenObserve**: Datasource, Versuion 0.14.7 or higher
--  **Docker**：Run docker compose and starting a Grafana container instance with grafana_openobserve_datasource plugin inside for developing environment
+Requirements:
 
-More details, please refer to [Development Documentation](doc/develop.md) 📖
+- **Node.js** 22 or newer
+- **Go** 1.27.1 or newer
+- **OpenObserve** 0.14.7 or newer
+- **Docker** for the local Grafana used during development
 
+```bash
+npm install
+npm run typecheck        # tsc --noEmit
+npm run lint             # eslint
+npm run test:ci          # jest
+npm run build            # webpack
 
-### Reporting Issues
+go build ./...
+go test ./pkg/...
+```
+
+The live verification scripts used to produce the screenshots above live in
+[tests/live](tests/live/README.md); they run real queries against a real
+OpenObserve and check the resulting frames.
+
+More details are in the [Development Documentation](doc/develop.md).
+
+### Reporting issues
+
 - Use the [GitHub Issues](https://github.com/LinPr/grafana-openobserve-datasource/issues) page
 - Provide detailed reproduction steps
 - Include relevant logs and screenshots
 
-### Feature Requests
+### Feature requests
+
 - Check existing issues first
-- Describe your use case clearly  
+- Describe your use case clearly
 - Explain the expected behavior
 
- 
-### Contributing 
+### Contributing
 
-If you have any good ideas, feel free to reach me out, you can also create pull requests for some new featurse or code enhancements to this project! 
+If you have any good ideas, feel free to reach out, or open a pull request for new
+features or code enhancements.
 
+---
 
-## 🙏Acknowledgment
-- Thanks to [Grafana](https://github.com/grafana/grafana) maintainers for suggesting me to use grafana-ui library (from GitHub issue) to build the pretty SQL query editor frontend of this plugin.
-- Thanks to [OpenObserve](https://github.com/openobserve/openobserve) maintainers for their help about opennobserve search API usage and resolve many other meticulous technical supports.
-- Thanks to [jiandaoyun](https://github.com/jiandaoyun) team for supporting and giving some suggestions and feedbacks to imporve the plugin functions.
+## 🙏 Acknowledgment
+
+- Thanks to the [Grafana](https://github.com/grafana/grafana) maintainers for the
+  `@grafana/ui` library used to build the SQL query editor.
+- Thanks to the [OpenObserve](https://github.com/openobserve/openobserve) maintainers
+  for their help with the search API and for the many detailed technical answers.
+- Thanks to the [jiandaoyun](https://github.com/jiandaoyun) team for supporting the
+  project and for feedback that improved it.
 
 ## 📄 License
 
-This project is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE) file for details. 
+This project is licensed under the **Apache License 2.0** — see the
+[LICENSE](LICENSE) file for details.
 
 ---
 
 <div align="center">
-  <h3> If this helps you, please give it a ⭐</h3>
+  <h3>If this helps you, please give it a ⭐</h3>
 </div>
-
