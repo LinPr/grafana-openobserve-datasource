@@ -23,6 +23,9 @@ export default defineConfig([
       '**/lib-cov',
       '**/coverage',
       '**/dist/',
+      // Local build/runtime caches, never part of a clean CI checkout.
+      '**/.gocache/',
+      '**/.runtime/',
       '**/artifacts/',
       '**/work/',
       '**/ci/',

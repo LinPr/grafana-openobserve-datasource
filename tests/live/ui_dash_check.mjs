@@ -8,7 +8,11 @@ const ctx = await browser.newContext({ viewport: { width: 1700, height: 1100 } }
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push('pageerror: ' + e.message));
-page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('console', m => {
+  if (m.type() === 'error') {
+    errors.push(m.text());
+  }
+});
 
 await page.goto(`${GRAFANA}/login`, { waitUntil: 'domcontentloaded' });
 await page.fill('input[name="user"]', 'admin');
