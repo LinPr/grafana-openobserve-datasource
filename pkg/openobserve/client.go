@@ -3,298 +3,468 @@ package openobserve
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bytedance/sonic"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
 
-// OpenObserveClient is a client for interacting with the OpenObserve API
-type OpenObserveClient struct {
-	BaseUrl    string
-	username   string
-	password   string
+// jsonAPI is the shared JSON codec. UseInt64 keeps 19-digit microsecond
+// timestamps from losing precision through float64.
+var jsonAPI = sonic.Config{UseInt64: true, CopyString: true}.Froze()
+
+// ClientConfig is the connection configuration of one datasource instance.
+type ClientConfig struct {
+	BaseURL      string
+	Organization string
+	Username     string
+	Password     string
+	// AuthMethod is "basic" or "token".
+	AuthMethod string
+	// Token is sent verbatim in the Authorization header when AuthMethod is
+	// "token".
+	Token              string
+	InsecureSkipVerify bool
+	Timeout            time.Duration
+}
+
+func (c ClientConfig) authMethod() string {
+	if c.AuthMethod == "" {
+		return "basic"
+	}
+	return c.AuthMethod
+}
+
+// Client talks to one OpenObserve instance. It is safe for concurrent use.
+type Client struct {
+	cfg        ClientConfig
+	baseURL    string
 	httpClient *http.Client
+
+	schemaMu    sync.RWMutex
+	schemaCache map[string][]Schema
 }
 
-// NewOpenObserveClient creates a new OpenObserve client with the given base URL, username, and password
-func NewOpenObserveClient(baseUrl, username, password string) *OpenObserveClient {
-	return &OpenObserveClient{
-		BaseUrl:  baseUrl,
-		username: username,
-		password: password,
-		httpClient: &http.Client{
-			Timeout: 60 * time.Second, // Set request timeout to 60 seconds
-		},
+// NewClient validates the configuration and builds a client.
+func NewClient(cfg ClientConfig) (*Client, error) {
+	base := strings.TrimSuffix(strings.TrimSpace(cfg.BaseURL), "/")
+	if base == "" {
+		return nil, fmt.Errorf("openobserve url is not configured")
 	}
+	if !strings.Contains(base, "://") {
+		base = "http://" + base
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return nil, fmt.Errorf("invalid openobserve url %q: %w", cfg.BaseURL, err)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("invalid openobserve url %q: missing host", cfg.BaseURL)
+	}
+
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   16,
+		IdleConnTimeout:       90 * time.Second,
+		ExpectContinueTimeout: time.Second,
+		ForceAttemptHTTP2:     true,
+	}
+	if cfg.InsecureSkipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+
+	if cfg.Organization == "" {
+		cfg.Organization = "default"
+	}
+
+	return &Client{
+		cfg:         cfg,
+		baseURL:     base,
+		httpClient:  &http.Client{Transport: transport, Timeout: timeout},
+		schemaCache: map[string][]Schema{},
+	}, nil
 }
 
-// Search performs a search request to the OpenObserve API
-func (c *OpenObserveClient) Search(searchReqParam *SearchRequestParam, searchReqBody *SearchRequestBody) (*SearchResponse, error) {
+// Config returns the client configuration.
+func (c *Client) Config() ClientConfig { return c.cfg }
 
-	// handle SSE request
-	if searchReqParam.EnableSSE {
-		req, err := c.newSSESearchRequest(searchReqParam, searchReqBody)
-		if err != nil {
-			return nil, err
-		}
+// Organization returns the configured organization.
+func (c *Client) Organization() string { return c.cfg.Organization }
 
-		log.DefaultLogger.Debug("http SSE request created", "request", req)
+// ---- request plumbing -----------------------------------------------------
 
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-
-		return handleSSEResponse(resp)
-	}
-
-	// handle regular HTTP request
-	req, err := c.newSearchRequest(searchReqParam, searchReqBody)
+func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, err
 	}
-
-	log.DefaultLogger.Debug("http request created", "request", req)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	return handleRegularResponse(resp)
-}
-
-func handleRegularResponse(resp *http.Response) (*SearchResponse, error) {
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("http response status code: %d, body: %s", resp.StatusCode, string(respBody))
-	}
-
-	var searchResponse SearchResponse
-	decoder := sonic.ConfigDefault.NewDecoder(resp.Body)
-	if err := decoder.Decode(&searchResponse); err != nil {
-		return nil, err
-	}
-	log.DefaultLogger.Debug("Regular", "len(searchResponse.Hits)", len(searchResponse.Hits))
-	return &searchResponse, nil
-}
-
-func handleSSEResponse(resp *http.Response) (*SearchResponse, error) {
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("http response status code: %d", resp.StatusCode)
-	}
-
-	var searchResponse SearchResponse
-	reader := bufio.NewReader(resp.Body)
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, err
-		}
-		if strings.HasPrefix(line, "event: search_response_hits") {
-			line, err := reader.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				return nil, err
-			}
-			hits := bytes.TrimPrefix(line, []byte("data: "))
-			var partSearchResp SearchResponse
-			decoder := sonic.ConfigDefault.NewDecoder(bytes.NewBuffer(hits))
-			if err := decoder.Decode(&partSearchResp); err != nil {
-				return nil, err
-			}
-			log.DefaultLogger.Debug("SSE", "len(partSearchResp.Hits)", len(partSearchResp.Hits))
-			searchResponse.Hits = append(searchResponse.Hits, partSearchResp.Hits...)
-		}
-	}
-	return &searchResponse, nil
-}
-
-// newSearchRequest creates a new HTTP request for the search operation
-func (c *OpenObserveClient) newSearchRequest(searchReqParam *SearchRequestParam, searchReqBody *SearchRequestBody) (*http.Request, error) {
-	log.DefaultLogger.Debug("newSearchRequest called", "searchReqParam", searchReqParam, "searchReqBody", searchReqBody)
-	searchReqBodyBytes, err := sonic.Marshal(searchReqBody)
-	if err != nil {
-		return nil, err
-	}
-
-	// construct the search URL
-	searchUrl := fmt.Sprintf("%s/api/%s/_search", c.BaseUrl, searchReqParam.Organization)
-
-	// create a new HTTP POST request with basic info
-	req, err := http.NewRequest(http.MethodPost, searchUrl, bytes.NewBuffer(searchReqBodyBytes))
-	if err != nil {
-		return nil, err
-	}
-
-	// set query parameters
-	q := req.URL.Query()
-	q.Set("search_type", searchReqParam.SearchType)
-	q.Set("type", searchReqParam.StreamType)
-	q.Set("use_cache", fmt.Sprintf("%t", searchReqParam.UseCache))
-
-	req.URL.RawQuery = q.Encode()
-
-	// set http headers
-	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(c.username, c.password)
-	// req.Header.Set("Authorization", fmt.Sprintf("Basic %s", c.BasicAuth))
-
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "grafana-openobserve-datasource")
+	c.applyAuth(req)
 	return req, nil
 }
 
-// newSearchRequest creates a new HTTP request for the search operation
-func (c *OpenObserveClient) newSSESearchRequest(searchReqParam *SearchRequestParam, searchReqBody *SearchRequestBody) (*http.Request, error) {
-	log.DefaultLogger.Debug("newSSESearchRequest called", "searchReqParam", searchReqParam, "searchReqBody", searchReqBody)
-	searchReqBodyBytes, err := sonic.Marshal(searchReqBody)
-	if err != nil {
-		return nil, err
+func (c *Client) applyAuth(req *http.Request) {
+	if c.cfg.authMethod() == "token" && c.cfg.Token != "" {
+		req.Header.Set("Authorization", c.cfg.Token)
+		return
 	}
-
-	// construct the SSE search URL
-	searchUrl := fmt.Sprintf("%s/api/%s/_search_stream", c.BaseUrl, searchReqParam.Organization)
-
-	// create a new HTTP POST request with basic info
-	req, err := http.NewRequest(http.MethodPost, searchUrl, bytes.NewBuffer(searchReqBodyBytes))
-	if err != nil {
-		return nil, err
-	}
-
-	// set query parameters
-	q := req.URL.Query()
-	q.Set("search_type", searchReqParam.SearchType)
-	q.Set("type", searchReqParam.StreamType)
-	q.Set("use_cache", fmt.Sprintf("%t", searchReqParam.UseCache))
-
-	req.URL.RawQuery = q.Encode()
-
-	// set http headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	req.SetBasicAuth(c.username, c.password)
-
-	return req, nil
+	req.SetBasicAuth(c.cfg.Username, c.cfg.Password)
 }
 
-// HealthCheck checks the health of the OpenObserve cluster
-func (c *OpenObserveClient) HealthCheck() error {
-	clusterUrl := fmt.Sprintf("%s/api/clusters", c.BaseUrl)
-
-	req, err := http.NewRequest(http.MethodGet, clusterUrl, nil)
-	if err != nil {
-		return err
-	}
-	req.SetBasicAuth(c.username, c.password)
-
+// do performs the request and decodes a successful JSON response into out.
+func (c *Client) do(req *http.Request, out any) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return err
+		return wrapTransportError(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check failed: %d:%s", resp.StatusCode, resp.Status)
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return decodeHTTPError(resp)
 	}
-
+	if out == nil {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil
+	}
+	if err := jsonAPI.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("openobserve: decode response: %w", err)
+	}
 	return nil
 }
 
-// HandleListStreams handles the HTTP request to list streams
-func (c *OpenObserveClient) HandleListStreams(rw http.ResponseWriter, req *http.Request) {
-	log.DefaultLogger.Debug("HandleListStreams called")
-
-	// initialize with the default values
-	listRequestParam := &ListStreamRequestParam{
-		Organization: "default",
-		StreamType:   "logs",
-		SortBy:       "name",
-		Ascending:    true,
-	}
-
-	// override with query parameters if provided
-	if organization := req.URL.Query().Get("organization"); organization != "" {
-		listRequestParam.Organization = organization
-	}
-	if streamType := req.URL.Query().Get("type"); streamType != "" {
-		listRequestParam.StreamType = streamType
-	}
-
-	listStreamResp, err := c.ListStreams(listRequestParam)
+func (c *Client) getJSON(ctx context.Context, path string, out any) error {
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		rw.Header().Set("Content-Type", "application/json")
-		rw.WriteHeader(http.StatusInternalServerError)
-		rw.Write([]byte(fmt.Sprintf(`{"error": "failed to list streams: %s"}`, err.Error())))
-		return
+		return err
 	}
-
-	streamMap := make(map[string][]string, len(listStreamResp.List)) // stream --> []fields
-	for _, streamItem := range listStreamResp.List {
-		colunns := make([]string, 0, len(streamItem.Schema))
-		for _, column := range streamItem.Schema {
-			colunns = append(colunns, column.Name)
-		}
-		streamMap[streamItem.Name] = colunns
-	}
-
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusOK)
-	if err := sonic.ConfigDefault.NewEncoder(rw).Encode(streamMap); err != nil {
-		rw.Write([]byte(fmt.Sprintf(`{"error": "failed to encode stream map: %s"}`, err.Error())))
-		return
-	}
+	return c.do(req, out)
 }
 
-// ListStreams lists the streams information in the OpenObserve cluster
-func (c *OpenObserveClient) ListStreams(listStreamReqParam *ListStreamRequestParam) (*ListStreamResponse, error) {
-	// Implement the logic to list streams here.
-	// construct the search URL
-	listStreamUrl := fmt.Sprintf("%s/api/%s/streams", c.BaseUrl, listStreamReqParam.Organization)
-	req, err := http.NewRequest(http.MethodGet, listStreamUrl, nil)
+func (c *Client) postJSON(ctx context.Context, path string, body, out any) error {
+	payload, err := jsonAPI.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("openobserve: encode request: %w", err)
+	}
+	req, err := c.newRequest(ctx, http.MethodPost, path, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, out)
+}
+
+func wrapTransportError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errorsIsContext(err) {
+		return err
+	}
+	return fmt.Errorf("openobserve: request failed: %w", err)
+}
+
+func errorsIsContext(err error) bool {
+	return err != nil && (strings.Contains(err.Error(), "context canceled") || strings.Contains(err.Error(), "context deadline exceeded"))
+}
+
+// decodeHTTPError reads an error body and converts it into *HTTPError.
+func decodeHTTPError(resp *http.Response) error {
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	httpErr := &HTTPError{StatusCode: resp.StatusCode, Body: string(raw)}
+	var apiErr APIError
+	if len(raw) > 0 && jsonAPI.Unmarshal(raw, &apiErr) == nil && (apiErr.Message != "" || apiErr.Code != 0) {
+		httpErr.API = &apiErr
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		body := strings.TrimSpace(httpErr.Body)
+		if body == "" {
+			body = http.StatusText(resp.StatusCode)
+		}
+		httpErr.Hint = fmt.Sprintf(
+			"openobserve: authentication failed (HTTP %d): %s -- check the configured user/password or token",
+			resp.StatusCode, body)
+	}
+	return httpErr
+}
+
+// ---- search ---------------------------------------------------------------
+
+// Search runs a search request. It transparently uses the streaming endpoint
+// when requested and merges every hit batch into one response.
+func (c *Client) Search(ctx context.Context, param *SearchRequestParam, body *SearchRequestBody) (*SearchResponse, error) {
+	org := param.Organization
+	if org == "" {
+		org = c.cfg.Organization
+	}
+	streamType := param.StreamType
+	if streamType == "" {
+		streamType = LogsStream
+	}
+
+	query := url.Values{}
+	if param.SearchType != "" {
+		query.Set("search_type", param.SearchType)
+	}
+	query.Set("type", streamType)
+	if param.EnableSSE {
+		query.Set("use_cache", strconv.FormatBool(param.UseCache))
+		return c.searchStream(ctx, org, query, body)
+	}
+	query.Set("use_cache", strconv.FormatBool(param.UseCache))
+
+	payload, err := jsonAPI.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("openobserve: encode search body: %w", err)
+	}
+	req, err := c.newRequest(ctx, http.MethodPost, fmt.Sprintf("/api/%s/_search?%s", org, query.Encode()), bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
-	q := req.URL.Query()
-	q.Set("type", listStreamReqParam.StreamType)
-	q.Set("sort", listStreamReqParam.SortBy)
-	q.Set("asc", fmt.Sprintf("%t", listStreamReqParam.Ascending))
-	q.Set("fetchSchema", "true") // always fetch schema information
+	req.Header.Set("Content-Type", "application/json")
 
-	req.URL.RawQuery = q.Encode()
+	var resp SearchResponse
+	if err := c.do(req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
 
-	// set http headers
-	// req.Header.Set("Accept", "application/json")
-	// req.Header.Set("Authorization", fmt.Sprintf("Basic %s", c.BasicAuth))
-	req.SetBasicAuth(c.username, c.password)
+func (c *Client) searchStream(ctx context.Context, org string, query url.Values, body *SearchRequestBody) (*SearchResponse, error) {
+	payload, err := jsonAPI.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("openobserve: encode search body: %w", err)
+	}
+	req, err := c.newRequest(ctx, http.MethodPost, fmt.Sprintf("/api/%s/_search_stream?%s", org, query.Encode()), bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
 
-	// fmt.Printf("req.URL.String(): %v\n", req.URL.String())
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		return nil, wrapTransportError(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, decodeHTTPError(resp)
+	}
+
+	// Some deployments answer a _search_stream request with a plain JSON body
+	// instead of an event stream. Sniff the first non-space byte so the caller
+	// gets the rows instead of an empty result.
+	reader := bufio.NewReaderSize(resp.Body, 64*1024)
+	if head, err := reader.Peek(1); err == nil && head[0] == '{' {
+		ct := resp.Header.Get("Content-Type")
+		if !strings.Contains(ct, "text/event-stream") {
+			var plain SearchResponse
+			if err := jsonAPI.NewDecoder(reader).Decode(&plain); err != nil {
+				return nil, fmt.Errorf("openobserve: decode response: %w", err)
+			}
+			return &plain, nil
+		}
+	}
+	return readSearchStream(reader)
+}
+
+type sseEvent struct {
+	name string
+	data string
+}
+
+// readSearchStream consumes the SSE search stream and merges hits/metadata.
+func readSearchStream(r io.Reader) (*SearchResponse, error) {
+	var (
+		result   SearchResponse
+		pending  sseEvent
+		totalSet bool
+	)
+
+	flush := func(ev sseEvent) error {
+		if ev.data == "" || ev.data == "[[DONE]]" {
+			return nil
+		}
+		switch ev.name {
+		case "", "search_response_hits", "message":
+			var part struct {
+				Hits  []map[string]any `json:"hits"`
+				Total *int             `json:"total"`
+			}
+			if err := jsonAPI.Unmarshal([]byte(ev.data), &part); err != nil {
+				return fmt.Errorf("openobserve: decode stream chunk: %w", err)
+			}
+			result.Hits = append(result.Hits, part.Hits...)
+			if part.Total != nil && *part.Total > result.Total {
+				result.Total = *part.Total
+				totalSet = true
+			}
+		case "search_response_metadata":
+			var meta struct {
+				Results SearchResponse `json:"results"`
+			}
+			if err := jsonAPI.Unmarshal([]byte(ev.data), &meta); err != nil {
+				return fmt.Errorf("openobserve: decode stream metadata: %w", err)
+			}
+			if meta.Results.Total > result.Total {
+				result.Total = meta.Results.Total
+				totalSet = true
+			}
+			if result.TraceID == "" {
+				result.TraceID = meta.Results.TraceID
+			}
+			if len(meta.Results.Histogram) > 0 {
+				result.Histogram = meta.Results.Histogram
+			}
+		case "error":
+			var apiErr APIError
+			text := ev.data
+			if err := jsonAPI.Unmarshal([]byte(ev.data), &apiErr); err == nil && apiErr.Error() != "" {
+				text = apiErr.Error()
+			}
+			return fmt.Errorf("openobserve: stream error: %s", text)
+		}
+		return nil
+	}
+
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 32*1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case line == "":
+			if err := flush(pending); err != nil {
+				return nil, err
+			}
+			pending = sseEvent{}
+		case strings.HasPrefix(line, "event:"):
+			pending.name = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:"):
+			chunk := strings.TrimPrefix(line, "data:")
+			chunk = strings.TrimPrefix(chunk, " ")
+			if pending.data != "" {
+				pending.data += "\n"
+			}
+			pending.data += chunk
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, wrapTransportError(err)
+	}
+	if err := flush(pending); err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("http response status code: %d", resp.StatusCode)
+	if !totalSet && result.Total == 0 {
+		result.Total = len(result.Hits)
 	}
+	return &result, nil
+}
 
-	var listStreamResponse ListStreamResponse
-	decoder := sonic.ConfigDefault.NewDecoder(resp.Body)
-	if err := decoder.Decode(&listStreamResponse); err != nil {
+// ---- streams --------------------------------------------------------------
+
+// ListStreams returns every stream of the given type in the organization.
+func (c *Client) ListStreams(ctx context.Context, org, streamType string) (*ListStreamResponse, error) {
+	if org == "" {
+		org = c.cfg.Organization
+	}
+	if streamType == "" {
+		streamType = LogsStream
+	}
+	query := url.Values{}
+	query.Set("type", streamType)
+	query.Set("sort", "name")
+	query.Set("asc", "true")
+	query.Set("fetchSchema", "true")
+
+	var resp ListStreamResponse
+	if err := c.getJSON(ctx, fmt.Sprintf("/api/%s/streams?%s", org, query.Encode()), &resp); err != nil {
 		return nil, err
 	}
+	return &resp, nil
+}
 
-	return &listStreamResponse, nil
+// StreamSchema returns the column schema of one stream. Results are cached per
+// (org, stream, type) because the schema rarely changes and the query editor
+// asks for it constantly.
+func (c *Client) StreamSchema(ctx context.Context, org, stream, streamType string) ([]Schema, error) {
+	if org == "" {
+		org = c.cfg.Organization
+	}
+	if streamType == "" {
+		streamType = LogsStream
+	}
+	key := org + "|" + streamType + "|" + stream
+	c.schemaMu.RLock()
+	cached, ok := c.schemaCache[key]
+	c.schemaMu.RUnlock()
+	if ok {
+		return cached, nil
+	}
+
+	var resp StreamInfo
+	query := url.Values{}
+	query.Set("type", streamType)
+	if err := c.getJSON(ctx, fmt.Sprintf("/api/%s/streams/%s/schema?%s", org, url.PathEscape(stream), query.Encode()), &resp); err != nil {
+		return nil, err
+	}
+	c.schemaMu.Lock()
+	c.schemaCache[key] = resp.Schema
+	c.schemaMu.Unlock()
+	return resp.Schema, nil
+}
+
+// InvalidateSchema drops the cached schema, e.g. after a datasource update.
+func (c *Client) InvalidateSchema() {
+	c.schemaMu.Lock()
+	c.schemaCache = map[string][]Schema{}
+	c.schemaMu.Unlock()
+}
+
+// ---- health ---------------------------------------------------------------
+
+// Health verifies connectivity and credentials with a cheap request.
+func (c *Client) Health(ctx context.Context) error {
+	var resp ListStreamResponse
+	query := url.Values{}
+	query.Set("type", LogsStream)
+	query.Set("limit", "1")
+	if err := c.getJSON(ctx, fmt.Sprintf("/api/%s/streams?%s", c.cfg.Organization, query.Encode()), &resp); err != nil {
+		return err
+	}
+	return nil
+}
+
+// HealthDetail returns a human readable summary of the cluster, used by the
+// datasource health check so users can see which org/streams they reached.
+func (c *Client) HealthDetail(ctx context.Context) (string, error) {
+	if err := c.Health(ctx); err != nil {
+		return "", err
+	}
+	streams, err := c.ListStreams(ctx, c.cfg.Organization, LogsStream)
+	if err != nil {
+		return fmt.Sprintf("connected to organization %q", c.cfg.Organization), nil
+	}
+	return fmt.Sprintf("connected to OpenObserve organization %q (%d log streams)", c.cfg.Organization, len(streams.List)), nil
 }

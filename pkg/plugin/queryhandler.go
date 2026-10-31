@@ -5,272 +5,399 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/LinPr/grafana-openobserve-datasource/pkg/models"
 	"github.com/LinPr/grafana-openobserve-datasource/pkg/openobserve"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/grafana-plugin-sdk-go/experimental/concurrent"
 )
 
-// registerQueryHandlers registers the query handlers for different query types.
-func (ds *Datasource) registerQueryHandlers() {
-	queryTypeMux := datasource.NewQueryTypeMux()
-	queryTypeMux.HandleFunc("logs", ds.handleLogsQueryData)
-	queryTypeMux.HandleFunc("metrics", ds.handleMetricsQueryData)
-	queryTypeMux.HandleFunc("traces", ds.handleTracesQueryData)
-	queryTypeMux.HandleFunc("", ds.handleFallback)
-	ds.queryHandler = queryTypeMux
+// QueryModel is the JSON query sent by the Grafana query editor.
+type QueryModel struct {
+	// QueryType is the OpenObserve stream type: logs, metrics or traces.
+	QueryType string `json:"queryType"`
+	// EditorMode is "code" (raw SQL) or "builder".
+	EditorMode string `json:"editorMode"`
+	// RawSql is the SQL statement.
+	RawSql string `json:"rawSql"`
+	// RawQuery marks variable queries.
+	RawQuery bool `json:"rawQuery"`
+	// Format selects the frame shape: auto, logs, table, timeseries, trace.
+	Format string `json:"format"`
+	// QueryMode selects "sql" or "promql".
+	QueryMode string `json:"queryMode"`
+	// Expr is the PromQL expression used when QueryMode is promql.
+	Expr string `json:"expr"`
+
+	SearchType string `json:"searchType"`
+	UseCache   *bool  `json:"useCache"`
+	EnableSSE  *bool  `json:"enableSSE"`
+
+	From int64 `json:"from"`
+	Size int64 `json:"size"`
+
+	// TimeField / LogMessageField / LogLevelField override the datasource
+	// column defaults for this query.
+	TimeField       string `json:"timeField"`
+	LogMessageField string `json:"logMessageField"`
+	LogLevelField   string `json:"logLevelField"`
+
+	// TraceID restricts the trace view to one trace.
+	TraceID string `json:"traceId"`
+
+	AdHocFilters []AdHocVariableFilter `json:"adhocFilters"`
 }
 
-// handleLogsQueryData handles log queries.
-func (ds *Datasource) handleLogsQueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	return concurrent.QueryData(ctx, req, ds.queryStream, 10)
-}
-
-// handleMetricsQueryData handles metric queries.
-func (ds *Datasource) handleMetricsQueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	// return concurrent.QueryData(ctx, req, ds.queryMetrics, 10)
-	return concurrent.QueryData(ctx, req, ds.queryStream, 10)
-}
-
-// handleTracesQueryData handles trace queries.
-func (ds *Datasource) handleTracesQueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	return concurrent.QueryData(ctx, req, ds.queryStream, 10)
-}
-
-// handleFallback handles fallback queries that do not match any specific type.
-func (ds *Datasource) handleFallback(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	return concurrent.QueryData(ctx, req, ds.queryFallback, 10)
-}
-
-func (ds *Datasource) queryStream(ctx context.Context, query concurrent.Query) backend.DataResponse {
-
-	searchReqParam, searchReqBody, err := ds.prepareSearchRequest(query)
-	if err != nil {
-		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("prepareSearchRequest errpr: %v", err.Error()))
-	}
-	searchResponse, err := ds.openObserveClient.Search(searchReqParam, searchReqBody)
-	if err != nil {
-		return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("openObserveClient.Search error: %v", err.Error()))
-	}
-
-	parsedSql, err := ds.SqlParser.ParseSql(searchReqBody.Sql)
-	if err != nil {
-		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("SqlParser.ParseSql error: %v", err.Error()))
-	}
-
-	// transform the OpenObserve response data into Grafana data frame
-	// doc: https://grafana.com/developers/plugin-tools/introduction/data-frames
-	frame, err := ds.transformer.TransformStream(parsedSql, searchResponse)
-	if err != nil {
-		return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("transformer.TransformLogsStream error: %v", err.Error()))
-	}
-
-	frames := data.Frames{}
-	frames = append(frames, frame)
-
-	return backend.DataResponse{
-		Frames: frames,
-	}
-
-}
-
-// queryFallback is a fallback handler for queries that do not match any specific type
-// here we use it to handle queries emitted by the Grfana dynamic variables feature
-func (ds *Datasource) queryFallback(ctx context.Context, q concurrent.Query) backend.DataResponse {
-	searchReqParam, searchReqBody, err := ds.prepareSearchRequest(q)
-	if err != nil {
-		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("prepareSearchRequest error: %v", err.Error()))
-	}
-
-	// If the rawSql is "\\dt" (postgresql style), fetch databease tables(openobserve streams)
-	if strings.HasPrefix(searchReqBody.Sql, "\\dt") {
-		frame, err := ds.fallbackDisplayTables(searchReqParam.Organization, searchReqBody.Sql)
-		if err != nil {
-			return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("fallbackDisplayTables error: %v", err.Error()))
-		}
-		frames := data.Frames{}
-		frames = append(frames, frame)
-
-		return backend.DataResponse{
-			Frames: frames,
-		}
-	}
-
-	frame, err := ds.fallbackSelectFrom(searchReqParam, searchReqBody)
-	if err != nil {
-		return backend.ErrDataResponse(backend.StatusInternal, fmt.Sprintf("fallbackSelectFrom error: %v", err.Error()))
-	}
-
-	frames := data.Frames{}
-	frames = append(frames, frame)
-
-	return backend.DataResponse{
-		Frames: frames,
-	}
-}
-
-func (ds *Datasource) fallbackDisplayTables(organization string, rawSql string) (*data.Frame, error) {
-	parts := strings.Split(rawSql, " ")
-	if len(parts) != 2 || parts[0] != "\\dt" {
-		return nil, fmt.Errorf("invalid rawSql: %s, expected format: \\dt <stream_Type>", rawSql)
-	}
-
-	if parts[1] != "logs" && parts[1] != "metrics" && parts[1] != "traces" {
-		return nil, fmt.Errorf("invalid stream type: %s, expected one of: logs, metrics, traces", parts[1])
-	}
-
-	listStreamParam := &openobserve.ListStreamRequestParam{
-		Organization: organization,
-		StreamType:   parts[1],
-	}
-	listStreamResp, err := ds.openObserveClient.ListStreams(listStreamParam)
-	if err != nil {
-		return nil, fmt.Errorf("openObserveClient.ListStreams error: %v", err.Error())
-	}
-
-	frame, err := ds.transformer.TransformFallbackDisplayTables(listStreamResp)
-	if err != nil {
-		return nil, fmt.Errorf("transformer.TransformFallbackDisplayTables error: %v", err.Error())
-	}
-	return frame, nil
-}
-
-func (ds *Datasource) fallbackSelectFrom(searchReqParam *openobserve.SearchRequestParam, searchReqBody *openobserve.SearchRequestBody) (*data.Frame, error) {
-	// Perform the search request to OpenObserve
-	searchResponse, err := ds.openObserveClient.Search(searchReqParam, searchReqBody)
-	if err != nil {
-		return nil, fmt.Errorf("openObserveClient.Search error: %v", err.Error())
-	}
-
-	parsedSql, err := ds.SqlParser.ParseSql(searchReqBody.Sql)
-	if err != nil {
-		return nil, fmt.Errorf("SqlParser.ParseSql error: %v", err.Error())
-	}
-
-	// transform the OpenObserve response data into Grafana data frame
-	// doc: https://grafana.com/developers/plugin-tools/introduction/data-frames
-	frame, err := ds.transformer.TransformFallbackSelectFrom(parsedSql, searchResponse)
-	if err != nil {
-		return nil, fmt.Errorf("transformer.TransformFallbackSelectFrom error: %v", err.Error())
-	}
-
-	return frame, nil
-}
-
-type grafanaQueryModel struct {
-	// Organization string `json:"organization"`
-	QueryType    string                `json:"queryType"`  // logs, metrics, traces
-	SearchType   string                `json:"searchType"` // e.g., "ui", "api"
-	UseCache     bool                  `json:"useCache"`   // Whether to use cache or not
-	EnableSSE    bool                  `json:"enableSSE"`  // Whether to enable Server-Sent Events (SSE) for real-time data streaming
-	RawSql       string                `json:"rawSql"`
-	From         int64                 `json:"from"`
-	Size         int64                 `json:"size"`
-	AdHocFilters []AdHocVariableFilter `json:"adhocFilters"` // Ad-hoc filters for the query
-}
-
+// AdHocVariableFilter is one Grafana ad-hoc variable filter.
 type AdHocVariableFilter struct {
 	Key      string `json:"key"`
 	Value    string `json:"value"`
-	Operator string `json:"operator"` // e.g., "=", "!=", "IN", "NOT IN"
+	Operator string `json:"operator"`
 }
 
-type Organization struct {
-	Database string `json:"database"`
+const (
+	queryModeSQL    = "sql"
+	queryModePromQL = "promql"
+
+	formatAuto        = "auto"
+	formatLogs        = "logs"
+	formatTable       = "table"
+	formatTimeSeries  = "timeseries"
+	formatTrace       = "trace"
+	formatAnnotations = "annotations"
+)
+
+// queryContext bundles everything one query needs.
+type queryContext struct {
+	model    QueryModel
+	query    backend.DataQuery
+	org      string
+	settings *models.JsonData
 }
 
-func (ds *Datasource) prepareSearchRequest(q concurrent.Query) (*openobserve.SearchRequestParam, *openobserve.SearchRequestBody, error) {
-	pCtx := q.PluginContext
-	query := q.DataQuery
-	log.DefaultLogger.Debug("prepareSearchRequest called", "query", query, "dataSourceInstanceSettings", pCtx.DataSourceInstanceSettings)
-	var organization Organization
-	if err := json.Unmarshal(pCtx.DataSourceInstanceSettings.JSONData, &organization); err != nil {
-		return nil, nil, err
+// parseQueryModel decodes and normalises a data query.
+func parseQueryModel(q backend.DataQuery) (QueryModel, error) {
+	var model QueryModel
+	if len(q.JSON) > 0 {
+		if err := json.Unmarshal(q.JSON, &model); err != nil {
+			return model, fmt.Errorf("invalid query: %w", err)
+		}
 	}
-	// Unmarshal the JSON into our queryModel.
-	var gqm grafanaQueryModel
+	model.RawSql = strings.TrimSpace(model.RawSql)
+	model.Expr = strings.TrimSpace(model.Expr)
+	if model.QueryType == "" {
+		model.QueryType = openobserve.LogsStream
+	}
+	if !openobserve.IsValidStreamType(model.QueryType) {
+		return model, fmt.Errorf("invalid stream type %q, expected one of logs, metrics or traces", model.QueryType)
+	}
+	if model.QueryMode == "" {
+		if model.Expr != "" && model.RawSql == "" {
+			model.QueryMode = queryModePromQL
+		} else {
+			model.QueryMode = queryModeSQL
+		}
+	}
+	if model.Format == "" {
+		model.Format = formatAuto
+	}
+	return model, nil
+}
 
-	if err := json.Unmarshal(query.JSON, &gqm); err != nil {
-		return nil, nil, fmt.Errorf("json unmarshal query error: %v", err.Error())
+// resolveFormat maps the plugin format onto the frame builder format.
+func resolveFormat(model QueryModel, parsed *openobserve.ParsedQuery) openobserve.Format {
+	switch model.Format {
+	case formatLogs:
+		return openobserve.FormatLogs
+	case formatTable:
+		return openobserve.FormatTable
+	case formatTimeSeries:
+		return openobserve.FormatTimeSeries
+	case formatTrace:
+		return openobserve.FormatTrace
+	case formatAnnotations:
+		return openobserve.FormatTable
 	}
-	filters := make([]openobserve.WhereFilter, 0, len(gqm.AdHocFilters))
-	for _, filter := range gqm.AdHocFilters {
-		filters = append(filters, openobserve.WhereFilter{
-			Key:       filter.Key,
-			Value:     filter.Value,
-			Operation: filter.Operator,
+	// auto
+	if model.QueryType == openobserve.TraceStream {
+		return openobserve.FormatTrace
+	}
+	if parsed != nil && parsed.Mode == openobserve.SelectAll && model.QueryType == openobserve.LogsStream {
+		return openobserve.FormatLogs
+	}
+	return openobserve.FormatAuto
+}
+
+// effectiveSize resolves the row limit with the datasource caps applied.
+func effectiveSize(model QueryModel, parsed *openobserve.ParsedQuery, settings *models.JsonData) int64 {
+	size := int64(0)
+	switch {
+	case model.Size > 0:
+		size = model.Size
+	case parsed != nil && parsed.Limit > 0:
+		size = parsed.Limit
+	default:
+		size = settings.DefaultLimit
+	}
+	if size <= 0 {
+		size = models.DefaultLimit
+	}
+	if size > settings.MaxLimit {
+		log.DefaultLogger.Warn("requested row limit capped", "requested", size, "max", settings.MaxLimit)
+		size = settings.MaxLimit
+	}
+	return size
+}
+
+// toAdHocFilters converts the query model filters.
+func toAdHocFilters(filters []AdHocVariableFilter) []openobserve.WhereFilter {
+	out := make([]openobserve.WhereFilter, 0, len(filters))
+	for _, f := range filters {
+		if strings.TrimSpace(f.Key) == "" {
+			continue
+		}
+		out = append(out, openobserve.WhereFilter{
+			Key:       f.Key,
+			Value:     f.Value,
+			Operation: f.Operator,
 		})
 	}
+	return out
+}
 
-	var completedSql string
-	if strings.HasPrefix(gqm.RawSql, "\\dt") {
-		completedSql = gqm.RawSql
-	} else {
-		sql, err := ds.SqlParser.CompeleteSqlWithAdhocFilters(gqm.RawSql, filters)
-		if err != nil {
-			return nil, nil, fmt.Errorf("SqlParser.CompeleteSqlWithAdhocFilters error: %v", err.Error())
+// frameOptions assemble the frame builder options.
+func frameOptions(model QueryModel, settings *models.JsonData, loc *time.Location, format openobserve.Format) openobserve.FrameOptions {
+	timeField := firstNonEmpty(model.TimeField, settings.TimeField)
+	msgField := firstNonEmpty(model.LogMessageField, settings.LogMessageField)
+	levelField := firstNonEmpty(model.LogLevelField, settings.LogLevelField)
+	return openobserve.FrameOptions{
+		Format:       format,
+		TimeZone:     loc,
+		TimeField:    timeField,
+		MessageField: msgField,
+		LevelField:   levelField,
+		TraceIDField: model.TraceID,
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
 		}
-		completedSql = sql
-		log.DefaultLogger.Debug("Completed SQL", "completedSql", completedSql)
 	}
+	return ""
+}
 
-	// TODO: set the default values for
-	gqm.SearchType = openobserve.SearchTypeUI // Default to UI search type if not specified
-	gqm.UseCache = true                       // Default to using cache
-
-	// Parse SQL to extract LIMIT value
-	parsedSql, err := ds.SqlParser.ParseSql(completedSql)
+// runSQLQuery executes one SQL query and shapes the response.
+func (d *Datasource) runSQLQuery(ctx context.Context, q backend.DataQuery) backend.DataResponse {
+	model, err := parseQueryModel(q)
 	if err != nil {
-		log.DefaultLogger.Warn("prepareSearchRequest: Failed to parse SQL for LIMIT extraction", "error", err)
-		parsedSql = nil
+		return backend.ErrDataResponseWithSource(backend.StatusBadRequest, backend.ErrorSourceDownstream, err.Error())
+	}
+	if model.RawSql == "" {
+		return backend.ErrDataResponseWithSource(backend.StatusBadRequest, backend.ErrorSourceDownstream, "the query is empty: write a SELECT statement such as SELECT * FROM \"my_stream\" LIMIT 100")
 	}
 
-	// Determine the size to use:
-	// 1. If frontend explicitly set Size, use it (but cap at max)
-	// 2. If SQL has LIMIT clause, use that value (but cap at max)
-	// 3. Otherwise, use default of 200
-	const (
-		defaultSize int64 = 200
-		maxSize     int64 = 10000 // Maximum to prevent browser crashes and excessive memory usage
-	)
+	settings := d.settings.JsonData
 
-	size := defaultSize
-	if gqm.Size > 0 {
-		// Frontend explicitly set a size
-		size = gqm.Size
-	} else if parsedSql != nil && parsedSql.Limit > 0 {
-		// SQL has a LIMIT clause
-		size = parsedSql.Limit
+	// Ad-hoc filters are injected before parsing so the LIMIT/stream analysis
+	// sees the final statement.
+	finalSQL := model.RawSql
+	if !strings.HasPrefix(strings.ToLower(finalSQL), "\\dt") {
+		finalSQL, err = d.queryBuilder.ApplyAdHocFilters(model.RawSql, toAdHocFilters(model.AdHocFilters))
+		if err != nil {
+			return backend.ErrDataResponseWithSource(backend.StatusBadRequest, backend.ErrorSourceDownstream, fmt.Sprintf("cannot apply ad-hoc filters: %v", err))
+		}
 	}
 
-	// Cap the size at maximum to prevent browser crashes
-	if size > maxSize {
-		log.DefaultLogger.Warn("prepareSearchRequest: Size exceeds maximum, capping", "requested", size, "max", maxSize)
-		size = maxSize
+	parsed, err := d.queryBuilder.Parse(finalSQL)
+	if err != nil {
+		return backend.ErrDataResponseWithSource(backend.StatusBadRequest, backend.ErrorSourceDownstream, err.Error())
 	}
 
-	searchReqParam := &openobserve.SearchRequestParam{
-		Organization: organization.Database,
-		StreamType:   gqm.QueryType,
-		SearchType:   gqm.SearchType,
-		UseCache:     gqm.UseCache,
-		EnableSSE:    gqm.EnableSSE,
+	size := effectiveSize(model, parsed, settings)
+	from := model.From
+	if from < 0 {
+		from = 0
 	}
 
-	searchReqBody := &openobserve.SearchRequestBody{
+	sse := true
+	if model.EnableSSE != nil {
+		sse = *model.EnableSSE
+	}
+	useCache := true
+	if model.UseCache != nil {
+		useCache = *model.UseCache
+	}
+	searchType := model.SearchType
+	if searchType == "" {
+		searchType = openobserve.SearchTypeUI
+	}
+
+	// The SQL stream is scoped by the query time range unless the statement
+	// aggregates, in which case OpenObserve still applies start/end.
+	start := q.TimeRange.From
+	end := q.TimeRange.To
+	if end.IsZero() || end.Before(start) {
+		end = time.Now()
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, settings.Timeout())
+	defer cancel()
+
+	param := &openobserve.SearchRequestParam{
+		Organization: d.client.Organization(),
+		StreamType:   model.QueryType,
+		SearchType:   searchType,
+		UseCache:     useCache,
+		EnableSSE:    sse,
+	}
+	body := &openobserve.SearchRequestBody{
 		Query: openobserve.Query{
-			Sql:       completedSql,
-			StartTime: query.TimeRange.From.UnixMicro(),
-			EndTime:   query.TimeRange.To.UnixMicro(),
-			From:      gqm.From,
-			Size:      size, // Use parsed LIMIT or default, capped at maxSize
+			Sql:       stripTrailingSemicolon(finalSQL),
+			StartTime: start.UnixMicro(),
+			EndTime:   end.UnixMicro(),
+			From:      from,
+			Size:      size,
 		},
-		SearchType: openobserve.SearchTypeUI,
-		Timeout:    60, // default to 60 seconds timeout
+		SearchType: searchType,
+		Timeout:    int(settings.Timeout() / time.Second),
 	}
 
-	return searchReqParam, searchReqBody, nil
+	resp, err := d.client.Search(ctx, param, body)
+	if err != nil {
+		return backend.ErrDataResponseWithSource(backend.StatusInternal, backend.ErrorSourceDownstream, err.Error())
+	}
+	// An empty result is the normal answer for "nothing matched", but it is also
+	// what a stream type mismatch looks like: querying a log stream as "metrics"
+	// silently returns no rows because OpenObserve searches a different data
+	// directory per type. Say so instead of showing an empty panel.
+	if len(resp.Hits) == 0 && parsed != nil && parsed.Table != "" {
+		if hint := d.streamTypeHint(ctx, model.QueryType, parsed.Table); hint != "" {
+			return backend.ErrDataResponseWithSource(backend.StatusBadRequest, backend.ErrorSourceDownstream, hint)
+		}
+	}
+
+	rs := d.buildResultSet(ctx, model.QueryType, parsed, resp)
+	format := resolveFormat(model, parsed)
+
+	frames, err := d.builder.BuildFrames(rs, frameOptions(model, settings, q.TimeRange.From.Location(), format))
+	if err != nil {
+		return backend.ErrDataResponseWithSource(backend.StatusInternal, backend.ErrorSourceDownstream, fmt.Sprintf("cannot build response: %v", err))
+	}
+	if model.Format == formatAnnotations {
+		frames = buildAnnotationFrames(rs, q.TimeRange.From.Location())
+	}
+	for _, frame := range frames {
+		if frame.Meta == nil {
+			frame.Meta = &data.FrameMeta{}
+		}
+		if frame.Meta.ExecutedQueryString == "" {
+			frame.Meta.ExecutedQueryString = body.Sql
+		}
+	}
+	return backend.DataResponse{Frames: frames}
+}
+
+// streamTypeHint explains an empty result that is caused by querying a stream
+// through the wrong stream type. It returns "" when the stream really is of the
+// requested type (or when the type cannot be determined).
+func (d *Datasource) streamTypeHint(ctx context.Context, streamType, stream string) string {
+	if streamType == "" || stream == "" {
+		return ""
+	}
+	org := d.client.Organization()
+	if has, err := d.streamExists(ctx, org, streamType, stream); err != nil || has {
+		return ""
+	}
+	for _, other := range openobserve.StreamTypes {
+		if other == streamType {
+			continue
+		}
+		if has, err := d.streamExists(ctx, org, other, stream); err == nil && has {
+			return fmt.Sprintf(
+				"no data: %q is a %s stream, but the query is set to %s. Switch the stream type to %q, or pick another stream.",
+				stream, other, streamType, other)
+		}
+	}
+	return ""
+}
+
+// streamExists reports whether stream is known under the given stream type.
+func (d *Datasource) streamExists(ctx context.Context, org, streamType, stream string) (bool, error) {
+	resp, err := d.client.ListStreams(ctx, org, streamType)
+	if err != nil {
+		return false, err
+	}
+	for _, s := range resp.List {
+		if s.Name == stream {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// buildResultSet augments the raw hits with the stream schema when the query
+// touches a single known stream, which improves column typing.
+func (d *Datasource) buildResultSet(ctx context.Context, streamType string, parsed *openobserve.ParsedQuery, resp *openobserve.SearchResponse) *openobserve.ResultSet {
+	var schema []openobserve.Schema
+	if parsed != nil && parsed.Table != "" {
+		cached, err := d.client.StreamSchema(ctx, "", parsed.Table, streamType)
+		if err != nil {
+			log.DefaultLogger.Debug("cannot load stream schema, falling back to value inference",
+				"stream", parsed.Table, "error", err)
+		} else {
+			schema = cached
+		}
+	}
+	return openobserve.NewResultSet(resp.Hits, schema)
+}
+
+func stripTrailingSemicolon(sql string) string {
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(sql), ";"))
+}
+
+// buildAnnotationFrames converts a result set into Grafana annotations.
+func buildAnnotationFrames(rs *openobserve.ResultSet, loc *time.Location) data.Frames {
+	if loc == nil {
+		loc = time.UTC
+	}
+	timeCol := rs.DetectTimeColumn("")
+	frame := data.NewFrame("annotations")
+	frame.Meta = &data.FrameMeta{}
+
+	timeIdx := rs.ColumnIndex(timeCol)
+	titleIdx := rs.ColumnIndex(rs.DetectBodyColumn(""))
+
+	times := make([]*time.Time, 0, len(rs.Rows))
+	titles := make([]string, 0, len(rs.Rows))
+	texts := make([]string, 0, len(rs.Rows))
+	tags := make([]string, 0, len(rs.Rows))
+
+	for _, row := range rs.Rows {
+		var ts time.Time
+		if timeIdx >= 0 && timeIdx < len(row) {
+			ts, _ = openobserve.ToTime(row[timeIdx])
+		}
+		times = append(times, &ts)
+		title := ""
+		text := ""
+		if titleIdx >= 0 && titleIdx < len(row) {
+			title = openobserve.ToString(row[titleIdx])
+			text = title
+		}
+		titles = append(titles, title)
+		texts = append(texts, text)
+		tags = append(tags, "")
+	}
+	frame.Fields = append(frame.Fields,
+		data.NewField("time", nil, times),
+		data.NewField("title", nil, titles),
+		data.NewField("text", nil, texts),
+		data.NewField("tags", nil, tags),
+	)
+	return data.Frames{frame}
 }

@@ -1,32 +1,18 @@
 module github.com/LinPr/grafana-openobserve-datasource
 
-go 1.24.6
+go 1.27.1
 
 require (
-	github.com/bytedance/sonic v1.14.0
+	github.com/bytedance/sonic v1.15.5
 	github.com/grafana/grafana-plugin-sdk-go v0.281.0
-	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2
 )
 
 require (
-	github.com/bytedance/sonic/loader v0.3.0 // indirect
-	github.com/certifi/gocertifi v0.0.0-20200922220541-2c3bb06c6054 // indirect
-	github.com/cloudwego/base64x v0.1.5 // indirect
-	github.com/cockroachdb/apd v1.1.1-0.20181017181144-bced77f817b4 // indirect
-	github.com/cockroachdb/errors v1.8.2 // indirect
-	github.com/cockroachdb/logtags v0.0.0-20190617123548-eb05cc24525f // indirect
-	github.com/cockroachdb/redact v1.0.8 // indirect
-	github.com/cockroachdb/sentry-go v0.6.1-cockroachdb.2 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/getsentry/raven-go v0.2.0 // indirect
-	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
-	github.com/kr/pretty v0.3.1 // indirect
-	github.com/kr/text v0.2.0 // indirect
-	github.com/lib/pq v1.9.0 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
-	github.com/rogpeppe/go-internal v1.13.1 // indirect
-	github.com/sirupsen/logrus v1.9.1 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/bytedance/gopkg v0.1.3 // indirect
+	github.com/bytedance/sonic/loader v0.5.3 // indirect
+	github.com/cloudwego/base64x v0.1.6 // indirect
+	github.com/fsnotify/fsnotify v1.4.9 // indirect
+	github.com/smartystreets/goconvey v1.6.4 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
@@ -36,7 +22,6 @@ require (
 require (
 	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/apache/arrow-go/v18 v18.4.1 // indirect
-	github.com/auxten/postgresql-parser v1.0.1
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

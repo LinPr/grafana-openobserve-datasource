@@ -1,4 +1,4 @@
-FROM golang:1.24.2 AS base
+FROM golang:1.27.2 AS base
 ARG PROXY
 WORKDIR /app
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' \
