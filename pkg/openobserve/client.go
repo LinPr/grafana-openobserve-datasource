@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -14,13 +15,41 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/bytedance/sonic"
 )
 
-// jsonAPI is the shared JSON codec. UseInt64 keeps 19-digit microsecond
-// timestamps from losing precision through float64.
-var jsonAPI = sonic.Config{UseInt64: true, CopyString: true}.Froze()
+// jsonAPI is the shared JSON codec.
+//
+// It decodes numbers into json.Number instead of float64: OpenObserve returns
+// `_timestamp` as 16-digit microseconds and `start_time` as 19-digit
+// nanoseconds, neither of which survives a float64 round trip. Consumers use
+// openobserve.ToTime / toInt64 / toFloat64, which all understand json.Number.
+//
+// The obvious candidate, bytedance/sonic with Config.UseInt64, does the same
+// job but only compiles for 64-bit targets, and the release workflow builds
+// linux/arm as well.
+var jsonAPI = &stdJSON{}
+
+// stdJSON adapts encoding/json to the small surface the client uses, keeping
+// number precision via UseNumber.
+type stdJSON struct{}
+
+func (stdJSON) Marshal(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
+
+func (stdJSON) Unmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }
+
+func (stdJSON) NewDecoder(r io.Reader) *json.Decoder {
+	dec := json.NewDecoder(r)
+	dec.UseNumber()
+	return dec
+}
 
 // ClientConfig is the connection configuration of one datasource instance.
 type ClientConfig struct {

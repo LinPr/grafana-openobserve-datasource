@@ -2,20 +2,12 @@ module github.com/LinPr/grafana-openobserve-datasource
 
 go 1.24.6
 
-require (
-	github.com/bytedance/sonic v1.15.5
-	github.com/grafana/grafana-plugin-sdk-go v0.281.0
-)
+require github.com/grafana/grafana-plugin-sdk-go v0.281.0
 
 require (
-	github.com/bytedance/gopkg v0.1.3 // indirect
-	github.com/bytedance/sonic/loader v0.5.3 // indirect
-	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/smartystreets/goconvey v1.6.4 // indirect
-	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
-	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/telemetry v0.0.0-20250908211612-aef8a434d053 // indirect
 )
 
