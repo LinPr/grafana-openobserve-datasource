@@ -86,6 +86,14 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
   const [streamsError, setStreamsError] = useState<string | undefined>();
   const [fields, setFields] = useState<Array<{ label: string; detail?: string }>>([]);
 
+  /*
+   * Set when the user switches the stream type. The stream list is loaded
+   * asynchronously, so the "pick the first stream of the new type" step has to
+   * happen once that list arrives -- doing it in the click handler would race
+   * the fetch and pick from the previous type's list.
+   */
+  const pendingAutoSelect = useRef(false);
+
   // Load the stream list whenever the stream type changes.
   useEffect(() => {
     let cancelled = false;
@@ -97,17 +105,31 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         }
         setStreamsError(undefined);
         setStreams(names.map(name => ({ label: name, value: name })));
+
+        // Switching type leaves the query pointing at a stream of the old type,
+        // which errors on the next run. Adopt the first stream of the new type
+        // so the editor is immediately runnable.
+        if (pendingAutoSelect.current && names.length > 0) {
+          pendingAutoSelect.current = false;
+          const table = names[0];
+          const merged = { ...latestQuery.current, table, rawSql: retargetStream(latestQuery.current.rawSql ?? '', table) };
+          latestQuery.current = merged;
+          onChange(merged);
+        }
       })
       .catch(error => {
         if (cancelled) {
           return;
         }
+        pendingAutoSelect.current = false;
         setStreams([]);
         setStreamsError(error?.data?.error ?? error?.message ?? String(error));
       });
     return () => {
       cancelled = true;
     };
+    // onChange is stable from Grafana; listing it would refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasource, streamType]);
 
   // Column completion for the stream referenced by the current SQL.
@@ -143,16 +165,17 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
     if (nextType === streamType) {
       return;
     }
-    // Switching the stream type only re-scopes which catalogue the stream
-    // picker lists. The statement itself is untouched: it is still valid SQL
-    // for whatever stream is named in its FROM clause.
+    // The statement keeps pointing at a stream of the previous type, which
+    // would fail on the next run, so the effect above adopts the first stream
+    // of the new type as soon as its list has loaded.
+    pendingAutoSelect.current = true;
     patch(
       {
         queryType: nextType,
         // PromQL only exists for metrics in OpenObserve.
         queryMode: nextType === 'metrics' ? queryWithDefaults.queryMode ?? 'sql' : 'sql',
       },
-      true
+      false
     );
   };
 

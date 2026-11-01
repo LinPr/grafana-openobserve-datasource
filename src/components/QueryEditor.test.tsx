@@ -155,7 +155,7 @@ describe('QueryEditorSQL', () => {
   });
 
   it('resets the query mode to SQL when leaving the metrics stream type', async () => {
-    const { onChange, onRunQuery } = renderEditor({ query: { queryType: 'metrics', queryMode: 'promql', expr: 'up' } });
+    const { onChange } = renderEditor({ query: { queryType: 'metrics', queryMode: 'promql', expr: 'up' } });
     await waitFor(() => expect(screen.getByRole('group', { name: 'stream-type' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'Logs' }));
@@ -163,7 +163,6 @@ describe('QueryEditorSQL', () => {
     const updated = lastChange(onChange);
     expect(updated.queryType).toBe('logs');
     expect(updated.queryMode).toBe('sql');
-    expect(onRunQuery).toHaveBeenCalled();
   });
 
   it('lists the streams of the selected type', async () => {
@@ -277,6 +276,90 @@ describe('QueryEditorSQL', () => {
   it('shows a hint when the SQL is still empty', () => {
     renderEditor({ query: { queryType: 'logs', queryMode: 'sql', rawSql: '' } });
     expect(screen.getByText(/SELECT \* FROM/i)).toBeInTheDocument();
+  });
+});
+
+describe('QueryEditorSQL / stream type switch', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('selects the first stream of the new type so the query is runnable', async () => {
+    // Leaving the previous stream in place makes the next run fail, because a
+    // log stream does not exist in the traces catalogue.
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockImplementation((type: string) => {
+        if (type === 'traces') {
+          return Promise.resolve(['prd', 'dev']);
+        }
+        return Promise.resolve(['vnet_bff_dev', 'alerta']);
+      }),
+    });
+    const { onChange } = renderEditor({
+      datasource,
+      query: { queryType: 'logs', table: 'vnet_bff_dev', rawSql: 'SELECT * FROM "vnet_bff_dev" LIMIT 20' },
+    });
+    await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('logs'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
+
+    await waitFor(() => expect(lastChange(onChange).table).toBe('prd'));
+    const updated = lastChange(onChange);
+    expect(updated.queryType).toBe('traces');
+    expect(updated.rawSql).toBe('SELECT * FROM "prd" LIMIT 20');
+  });
+
+  it('keeps the rest of the statement when it adopts the first stream', async () => {
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockImplementation((type: string) =>
+        Promise.resolve(type === 'traces' ? ['prd'] : ['logs_stream'])
+      ),
+    });
+    const { onChange } = renderEditor({
+      datasource,
+      query: { queryType: 'logs', rawSql: 'SELECT count(*) AS "c" FROM "logs_stream" WHERE a = 1 LIMIT 5' },
+    });
+    await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('logs'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
+
+    await waitFor(() => expect(lastChange(onChange).table).toBe('prd'));
+    expect(lastChange(onChange).rawSql).toBe('SELECT count(*) AS "c" FROM "prd" WHERE a = 1 LIMIT 5');
+  });
+
+  it('does not touch the stream when the type has no streams', async () => {
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockImplementation((type: string) =>
+        Promise.resolve(type === 'traces' ? [] : ['vnet_bff_dev'])
+      ),
+    });
+    const { onChange } = renderEditor({
+      datasource,
+      query: { queryType: 'logs', table: 'vnet_bff_dev', rawSql: 'SELECT * FROM "vnet_bff_dev"' },
+    });
+    await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('logs'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
+    await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('traces'));
+
+    // Nothing to adopt: the statement keeps its stream rather than being cleared.
+    expect(lastChange(onChange).rawSql).toBe('SELECT * FROM "vnet_bff_dev"');
+  });
+
+  it('keeps the stream when the list cannot be loaded', async () => {
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockImplementation((type: string) =>
+        type === 'traces' ? Promise.reject(new Error('offline')) : Promise.resolve(['vnet_bff_dev'])
+      ),
+    });
+    const { onChange } = renderEditor({
+      datasource,
+      query: { queryType: 'logs', table: 'vnet_bff_dev', rawSql: 'SELECT * FROM "vnet_bff_dev"' },
+    });
+    await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('logs'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
+    await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('traces'));
+
+    expect(lastChange(onChange).rawSql).toBe('SELECT * FROM "vnet_bff_dev"');
   });
 });
 
