@@ -6,7 +6,7 @@
  * the minimum supported Grafana version is raised.
  */
 /* eslint-disable @typescript-eslint/no-deprecated */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryEditorProps, SelectableValue } from '@grafana/data';
 import {
   CodeEditor,
@@ -61,6 +61,24 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
     [query]
   );
 
+  /*
+   * Grafana echoes a just-sent query back a moment later -- typically when the
+   * CodeEditor reports its content after the stream picker rewrote the FROM
+   * target. At that instant `props.query` can still hold the values from
+   * *before* the last change, so building the next query from `queryWithDefaults`
+   * silently reverted fields the user had just set (picking a stream after
+   * switching to Traces put the type back to Logs).
+   *
+   * Keeping the newest query in a ref makes each change build on the last one
+   * we produced, not on a possibly stale prop.
+   */
+  const latestQuery = useRef<OpenObserveQuery>(queryWithDefaults);
+  useEffect(() => {
+    // A prop update that differs from what we last sent means the parent is
+    // authoritative again (dashboard load, JSON edit, ...), so take it.
+    latestQuery.current = queryWithDefaults;
+  }, [queryWithDefaults]);
+
   const mode = queryWithDefaults.queryMode ?? 'sql';
   const streamType = queryWithDefaults.queryType ?? 'logs';
 
@@ -110,12 +128,14 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
 
   const patch = useCallback(
     (next: Partial<OpenObserveQuery>, run = false) => {
-      onChange({ ...queryWithDefaults, ...next });
+      const merged = { ...latestQuery.current, ...next } as OpenObserveQuery;
+      latestQuery.current = merged;
+      onChange(merged);
       if (run) {
         onRunQuery();
       }
     },
-    [onChange, onRunQuery, queryWithDefaults]
+    [onChange, onRunQuery]
   );
 
   const onStreamTypeChange = (value: StreamType) => {

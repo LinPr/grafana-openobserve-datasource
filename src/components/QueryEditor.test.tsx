@@ -279,3 +279,50 @@ describe('QueryEditorSQL', () => {
     expect(screen.getByText(/SELECT \* FROM/i)).toBeInTheDocument();
   });
 });
+
+describe('QueryEditorSQL / stale prop handling', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('keeps the stream type when a stream is picked right after switching it', async () => {
+    // Grafana can echo a query back while props.query still holds the previous
+    // values; building the next change from that prop used to revert the type.
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockImplementation((type: string) =>
+        Promise.resolve(type === 'traces' ? ['prd'] : ['vnet_bff_dev'])
+      ),
+    });
+    const { onChange } = renderEditor({
+      datasource,
+      query: { queryType: 'logs', rawSql: 'SELECT * FROM "vnet_bff_dev" LIMIT 20' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
+    await waitFor(() => expect(lastChange(onChange).queryType).toBe('traces'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('query-editor-stream').querySelectorAll('option').length).toBeGreaterThan(1)
+    );
+    fireEvent.change(screen.getByTestId('query-editor-stream'), { target: { value: 'prd' } });
+
+    const updated = lastChange(onChange);
+    expect(updated.queryType).toBe('traces');
+    expect(updated.table).toBe('prd');
+  });
+
+  it('applies changes in sequence without dropping the previous one', async () => {
+    const { onChange } = renderEditor({ query: { queryType: 'logs', format: 'auto' } });
+
+    fireEvent.change(screen.getByTestId('query-editor-format'), { target: { value: 'trace' } });
+    await waitFor(() => expect(lastChange(onChange).format).toBe('trace'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('query-editor-stream').querySelectorAll('option').length).toBeGreaterThan(1)
+    );
+    fireEvent.change(screen.getByTestId('query-editor-stream'), { target: { value: 'vnet_bff_dev' } });
+
+    const updated = lastChange(onChange);
+    // The format chosen a moment earlier must survive the stream change.
+    expect(updated.format).toBe('trace');
+    expect(updated.table).toBe('vnet_bff_dev');
+  });
+});
