@@ -31,6 +31,7 @@ import {
   StreamType,
 } from '../types';
 import { completionFetchFields, extractFirstTable, retargetStream } from '../utils/completion';
+import { TraceQueryEditor } from './TraceQueryEditor';
 
 type Props = QueryEditorProps<OpenObserveDataSource, OpenObserveQuery, OpenObserveOptions>;
 
@@ -285,6 +286,7 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
           />
         </InlineField>
 
+        {streamType !== 'traces' && (
         <InlineField label="Stream" tooltip="The stream the query selects from" grow>
           <Select<string>
             inputId="query-editor-stream"
@@ -297,7 +299,9 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
             onChange={onStreamChange}
           />
         </InlineField>
+        )}
 
+        {streamType !== 'traces' && (
         <InlineField label="Limit" tooltip="Rows fetched. Empty means: use the SQL LIMIT, else the datasource default">
           <Input
             id="query-editor-limit"
@@ -308,14 +312,19 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
             onChange={onSizeChange}
           />
         </InlineField>
+        )}
 
-        <InlineField label="SSE" tooltip="Stream the results with the _search_stream endpoint">
-          <InlineSwitch id="query-editor-sse" value={queryWithDefaults.enableSSE ?? true} onChange={onToggleSSE} />
-        </InlineField>
+        {streamType !== 'traces' && (
+          <>
+            <InlineField label="SSE" tooltip="Stream the results with the _search_stream endpoint">
+              <InlineSwitch id="query-editor-sse" value={queryWithDefaults.enableSSE ?? true} onChange={onToggleSSE} />
+            </InlineField>
 
-        <InlineField label="Cache" tooltip="Let OpenObserve serve the query from its result cache">
-          <InlineSwitch id="query-editor-cache" value={queryWithDefaults.useCache ?? true} onChange={onToggleCache} />
-        </InlineField>
+            <InlineField label="Cache" tooltip="Let OpenObserve serve the query from its result cache">
+              <InlineSwitch id="query-editor-cache" value={queryWithDefaults.useCache ?? true} onChange={onToggleCache} />
+            </InlineField>
+          </>
+        )}
       </Stack>
 
       {warning && (
@@ -324,7 +333,14 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         </div>
       )}
 
-      {mode === 'promql' ? (
+      {/*
+        Traces get their own Jaeger-style form: the three query types need
+        different inputs, and the backend builds the SQL from them, so there is
+        no statement for the user to write.
+      */}
+      {streamType === 'traces' && <TraceQueryEditor datasource={datasource} query={queryWithDefaults} onChange={onChange} onRunQuery={onRunQuery} />}
+
+      {streamType === 'traces' ? null : mode === 'promql' ? (
         <CodeEditor
           value={queryWithDefaults.expr ?? ''}
           language="promql"
@@ -347,7 +363,7 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         />
       )}
 
-      {!queryWithDefaults.rawSql && mode === 'sql' && (
+      {!queryWithDefaults.rawSql && mode === 'sql' && streamType !== 'traces' && (
         <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
           Example: <code>{DEFAULT_SQL}</code> — pick a stream above to fill it in.
         </div>

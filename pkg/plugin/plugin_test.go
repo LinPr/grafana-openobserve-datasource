@@ -415,3 +415,132 @@ func TestQueryDataKeepsEmptyResultForMatchingStreamType(t *testing.T) {
 		t.Fatalf("want an empty result, got error: %v", dataResp.Error)
 	}
 }
+
+func TestParseDurationUS(t *testing.T) {
+	cases := map[string]int64{
+		"":      0,
+		"1000":  1000,
+		"1.2s":  1200000,
+		"100ms": 100000,
+		"500us": 500,
+		"2m":    120000000,
+	}
+	for raw, want := range cases {
+		got, err := parseDurationUS(raw)
+		if err != nil {
+			t.Errorf("parseDurationUS(%q): %v", raw, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("parseDurationUS(%q) = %d, want %d", raw, got, want)
+		}
+	}
+	for _, raw := range []string{"abc", "-5s", "1x"} {
+		if _, err := parseDurationUS(raw); err == nil {
+			t.Errorf("parseDurationUS(%q) should fail", raw)
+		}
+	}
+}
+
+func TestQueryDataTraceSearchBuildsListFrame(t *testing.T) {
+	var gotSQL string
+	ds := newTestDatasource(t, http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		var body openobserveSearchBody
+		_ = json.NewDecoder(req.Body).Decode(&body)
+		gotSQL = body.Query.Sql
+		_, _ = rw.Write([]byte(`{"hits":[
+			{"trace_id":"aaa","first_span":1793451754293460,"total_duration":458975,"spans":7,"entry_operation":"HTTP GET","entry_service":"vnet-bff","services":2},
+			{"trace_id":"bbb","first_span":1793451754293000,"total_duration":1000,"spans":1,"entry_operation":"GET /healthz","entry_service":"vnet-bff","services":1}
+		],"total":2}`))
+	}))
+
+	resp, err := ds.QueryData(context.Background(), queryRequest(t, map[string]any{
+		"queryType": "traces",
+		"traceMode": "search",
+		"table":     "prd",
+		"format":    "table",
+	}))
+	if err != nil {
+		t.Fatalf("QueryData: %v", err)
+	}
+	if e := resp.Responses["A"].Error; e != nil {
+		t.Fatalf("query error: %v", e)
+	}
+	frames := resp.Responses["A"].Frames
+	if len(frames) == 0 {
+		t.Fatal("no frames returned")
+	}
+	if !strings.Contains(gotSQL, `FROM "prd"`) || !strings.Contains(gotSQL, "GROUP BY trace_id") {
+		t.Errorf("unexpected sql: %s", gotSQL)
+	}
+	// One row per trace, with the columns the list needs.
+	if got := frames[0].Fields[0].Len(); got != 2 {
+		t.Errorf("rows = %d, want 2 traces", got)
+	}
+	if frames[0].Fields[0].Name != "traceID" {
+		t.Errorf("first column = %q, want traceID", frames[0].Fields[0].Name)
+	}
+}
+
+func TestQueryDataTraceIDRequiresID(t *testing.T) {
+	ds := newTestDatasource(t, http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		_, _ = rw.Write([]byte(`{"hits":[]}`))
+	}))
+
+	resp, err := ds.QueryData(context.Background(), queryRequest(t, map[string]any{
+		"queryType": "traces", "traceMode": "traceId", "table": "prd",
+	}))
+	if err != nil {
+		t.Fatalf("QueryData: %v", err)
+	}
+	e := resp.Responses["A"].Error
+	if e == nil {
+		t.Fatal("want an error telling the user to enter a trace id")
+	}
+	if !strings.Contains(e.Error(), "trace id") {
+		t.Errorf("error = %q, want it to mention the trace id", e.Error())
+	}
+}
+
+func TestQueryDataTraceGraphBuildsEdges(t *testing.T) {
+	ds := newTestDatasource(t, http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		_, _ = rw.Write([]byte(`{"hits":[
+			{"parent_service":"gateway","child_service":"orders","calls":120,"avg_duration_us":4500},
+			{"parent_service":"orders","child_service":"db","calls":300,"avg_duration_us":900}
+		],"total":2}`))
+	}))
+
+	resp, err := ds.QueryData(context.Background(), queryRequest(t, map[string]any{
+		"queryType": "traces", "traceMode": "graph", "table": "prd",
+	}))
+	if err != nil {
+		t.Fatalf("QueryData: %v", err)
+	}
+	if e := resp.Responses["A"].Error; e != nil {
+		t.Fatalf("query error: %v", e)
+	}
+	frames := resp.Responses["A"].Frames
+	if len(frames) == 0 {
+		t.Fatal("no graph frame")
+	}
+	frame := frames[0]
+	names := map[string]bool{}
+	for _, f := range frame.Fields {
+		names[f.Name] = true
+	}
+	for _, want := range []string{"source", "target", "calls"} {
+		if !names[want] {
+			t.Errorf("graph frame is missing %q", want)
+		}
+	}
+	if got := frame.Fields[0].Len(); got != 2 {
+		t.Errorf("edges = %d, want 2", got)
+	}
+}
+
+// openobserveSearchBody is the subset of the search payload the trace tests read.
+type openobserveSearchBody struct {
+	Query struct {
+		Sql string `json:"sql"`
+	} `json:"query"`
+}

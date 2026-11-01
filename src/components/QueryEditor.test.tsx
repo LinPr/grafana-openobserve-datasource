@@ -65,6 +65,7 @@ function newDatasource(overrides: Record<string, unknown> = {}) {
     fetchSchema: jest.fn().mockResolvedValue([]),
     listStreamColumns: jest.fn().mockResolvedValue({ vnet_bff_dev: ['body', 'severity'], alerta: ['body'] }),
     listMetricNames: jest.fn().mockResolvedValue([]),
+    distinctTraceValues: jest.fn().mockResolvedValue([]),
     ...overrides,
   } as unknown as OpenObserveDataSource;
   return ds;
@@ -382,10 +383,11 @@ describe('QueryEditorSQL / stale prop handling', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
     await waitFor(() => expect(lastChange(onChange).queryType).toBe('traces'));
 
+    // Traces use the trace editor's own stream picker.
     await waitFor(() =>
-      expect(screen.getByTestId('query-editor-stream').querySelectorAll('option').length).toBeGreaterThan(1)
+      expect(screen.getByTestId('trace-editor-stream').querySelectorAll('option').length).toBeGreaterThan(1)
     );
-    fireEvent.change(screen.getByTestId('query-editor-stream'), { target: { value: 'prd' } });
+    fireEvent.change(screen.getByTestId('trace-editor-stream'), { target: { value: 'prd' } });
 
     const updated = lastChange(onChange);
     expect(updated.queryType).toBe('traces');

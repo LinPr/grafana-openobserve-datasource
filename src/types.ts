@@ -6,6 +6,9 @@ export type StreamType = 'logs' | 'metrics' | 'traces';
 /** How the query is expressed. */
 export type QueryMode = 'sql' | 'promql';
 
+/** Trace editor modes, mirroring Jaeger's three query types. */
+export type TraceMode = 'search' | 'traceId' | 'graph';
+
 /** The shape the backend turns the response into. */
 export type ResultFormat = 'auto' | 'logs' | 'table' | 'timeseries' | 'trace' | 'annotations';
 
@@ -49,6 +52,15 @@ export interface OpenObserveQuery {
 
   /** Restrict the trace view to a single trace. */
   traceId?: string;
+
+  /** Trace editor mode: search (list), traceId (one trace), graph (services). */
+  traceMode?: TraceMode;
+  /** Trace search filters. */
+  serviceName?: string;
+  operationName?: string;
+  traceTags?: string[];
+  minDuration?: string;
+  maxDuration?: string;
 
   /** Per-query overrides of the datasource column mapping. */
   timeField?: string;

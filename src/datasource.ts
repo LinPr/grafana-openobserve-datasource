@@ -206,6 +206,28 @@ export class OpenObserveDataSource extends DataSourceWithBackend<OpenObserveQuer
     });
   }
 
+  /**
+   * Distinct values of one trace column, used to suggest services and
+   * operations in the trace editor. Failures degrade to an empty list: these are
+   * suggestions, not required data.
+   */
+  async distinctTraceValues(stream: string, key: string): Promise<string[]> {
+    if (!stream || !key) {
+      return [];
+    }
+    try {
+      const values: string[] = await this.getResource('/openobserve/tag-values', {
+        organization: this.organization,
+        type: 'traces',
+        stream,
+        key,
+      });
+      return Array.isArray(values) ? values : [];
+    } catch {
+      return [];
+    }
+  }
+
   /** Invalidate the completion cache, e.g. after creating a stream. */
   clearCache(): void {
     this.streamCache.clear();

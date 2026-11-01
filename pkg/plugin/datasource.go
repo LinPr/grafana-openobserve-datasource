@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/LinPr/grafana-openobserve-datasource/pkg/models"
@@ -127,6 +128,11 @@ func (d *Datasource) runQuery(ctx context.Context, q backend.DataQuery) (res bac
 	}
 	if model.QueryMode == queryModePromQL {
 		return d.runPromQLQuery(ctx, q, model)
+	}
+	// The trace editor drives its own SQL, so it must not go through the plain
+	// SQL path that expects the user to have written a statement.
+	if model.QueryType == openobserve.TraceStream && strings.TrimSpace(model.RawSql) == "" {
+		return d.runTraceQuery(ctx, q, model)
 	}
 	return d.runSQLQuery(ctx, q)
 }

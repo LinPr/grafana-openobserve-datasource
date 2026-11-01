@@ -30,6 +30,9 @@ type QueryModel struct {
 	QueryMode string `json:"queryMode"`
 	// Expr is the PromQL expression used when QueryMode is promql.
 	Expr string `json:"expr"`
+	// Table is the stream picked in the editor, used when the trace editor
+	// builds its own SQL.
+	Table string `json:"table"`
 
 	SearchType string `json:"searchType"`
 	UseCache   *bool  `json:"useCache"`
@@ -47,6 +50,15 @@ type QueryModel struct {
 	// TraceID restricts the trace view to one trace.
 	TraceID string `json:"traceId"`
 
+	// Trace editor (queryType = traces). TraceMode selects search / traceId /
+	// graph; the rest are the filters of the Jaeger-style trace form.
+	TraceMode     string   `json:"traceMode"`
+	ServiceName   string   `json:"serviceName"`
+	OperationName string   `json:"operationName"`
+	TraceTags     []string `json:"traceTags"`
+	MinDuration   string   `json:"minDuration"`
+	MaxDuration   string   `json:"maxDuration"`
+
 	AdHocFilters []AdHocVariableFilter `json:"adhocFilters"`
 }
 
@@ -60,6 +72,7 @@ type AdHocVariableFilter struct {
 const (
 	queryModeSQL    = "sql"
 	queryModePromQL = "promql"
+	queryModeTrace  = "trace"
 
 	formatAuto        = "auto"
 	formatLogs        = "logs"
