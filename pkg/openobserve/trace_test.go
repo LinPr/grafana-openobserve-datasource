@@ -52,6 +52,15 @@ func TestBuildSearchSQLAvoidsAliasCollisions(t *testing.T) {
 	if strings.Contains(sql, "min_by(") {
 		t.Errorf("min_by is not supported by OpenObserve:\n%s", sql)
 	}
+	// `duration` is already in microseconds, which is what Jaeger reports;
+	// deriving it from end_time-start_time (nanoseconds) loses precision once
+	// the aggregate is integer-typed.
+	if !strings.Contains(sql, "max(duration) AS total_duration") {
+		t.Errorf("total duration should come from the span duration:\n%s", sql)
+	}
+	if strings.Contains(sql, "end_time") {
+		t.Errorf("duration should not be recomputed from end_time:\n%s", sql)
+	}
 	if !strings.Contains(sql, "ORDER BY first_span DESC") {
 		t.Errorf("search sql should order by the start-time alias:\n%s", sql)
 	}
@@ -79,6 +88,8 @@ func TestBuildGraphSQL(t *testing.T) {
 		`FROM "prd" AS child`,
 		`JOIN "prd" AS parent`,
 		`child.reference_parent_span_id = parent.span_id`,
+		`child.span_id <> parent.span_id`,
+		`child.service_name <> parent.service_name`,
 		`GROUP BY parent_service, child_service`,
 		`ORDER BY calls DESC`,
 	} {

@@ -87,7 +87,7 @@ func BuildSearchSQL(q TraceQuery, defaultLimit int64) string {
 	// OpenObserve has no min_by, so it is picked with a conditional aggregate.
 	sb.WriteString(`SELECT trace_id,
        min(start_time) AS first_span,
-       max(end_time) - min(start_time) AS total_duration,
+       max(duration) AS total_duration,
        count(*) AS spans,
        min(CASE WHEN reference_parent_span_id IS NULL OR reference_parent_span_id = '' THEN operation_name END) AS entry_operation,
        min(CASE WHEN reference_parent_span_id IS NULL OR reference_parent_span_id = '' THEN service_name END) AS entry_service,
@@ -135,7 +135,7 @@ FROM `)
 	sb.WriteString(` AS child
 JOIN `)
 	sb.WriteString(stream)
-	sb.WriteString(` AS parent ON child.reference_parent_span_id = parent.span_id`)
+	sb.WriteString(` AS parent ON child.reference_parent_span_id = parent.span_id AND child.span_id <> parent.span_id`)
 	writeGraphWhere(&sb, q)
 	sb.WriteString(` GROUP BY parent_service, child_service ORDER BY calls DESC`)
 	sb.WriteString(fmt.Sprintf(` LIMIT %d`, graphLimit(q.Limit, defaultLimit)))
@@ -167,7 +167,12 @@ func writeTraceWhere(sb *strings.Builder, q TraceQuery) {
 
 // writeGraphWhere filters the self-join used by the dependency graph.
 func writeGraphWhere(sb *strings.Builder, q TraceQuery) {
-	conds := []string{"child.reference_parent_span_id IS NOT NULL"}
+	// A span whose parent belongs to the same service is an internal call, not
+	// a service dependency; drawing it as an edge would only produce self-loops.
+	conds := []string{
+		"child.reference_parent_span_id IS NOT NULL",
+		"child.service_name <> parent.service_name",
+	}
 	if s := strings.TrimSpace(q.ServiceName); s != "" && s != "All" {
 		conds = append(conds, "child.service_name = "+sqlString(s))
 	}
