@@ -21,6 +21,20 @@ jest.mock('@grafana/ui', () => {
         onBlur={event => onBlur(event.currentTarget.value)}
       />
     ),
+    RadioButtonGroup: ({ options, value, onChange }: any) => (
+      <div role="group" aria-label="stream-type">
+        {(options ?? []).map((option: any) => (
+          <button
+            key={String(option.value)}
+            type="button"
+            aria-pressed={option.value === value}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    ),
     Select: ({ inputId, value, options, onChange, disabled, placeholder }: any) => (
       <select
         aria-label={inputId ?? placeholder ?? 'select'}
@@ -142,9 +156,9 @@ describe('QueryEditorSQL', () => {
 
   it('resets the query mode to SQL when leaving the metrics stream type', async () => {
     const { onChange, onRunQuery } = renderEditor({ query: { queryType: 'metrics', queryMode: 'promql', expr: 'up' } });
-    await waitFor(() => expect(screen.getByTestId('query-editor-stream-type')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('group', { name: 'stream-type' })).toBeInTheDocument());
 
-    fireEvent.change(screen.getByTestId('query-editor-stream-type'), { target: { value: 'logs' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Logs' }));
 
     const updated = lastChange(onChange);
     expect(updated.queryType).toBe('logs');
@@ -171,7 +185,7 @@ describe('QueryEditorSQL', () => {
     renderEditor({ datasource, query: { queryType: 'logs' } });
     await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('logs'));
 
-    fireEvent.change(screen.getByTestId('query-editor-stream-type'), { target: { value: 'traces' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
     await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('traces'));
   });
 

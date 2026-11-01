@@ -115,6 +115,43 @@ export async function completionFetchTables(
  * extractFirstTable pulls the stream name out of "FROM <ident>" so completion
  * can suggest that stream's columns even before the user picks it explicitly.
  */
+/**
+ * Matches the FROM target only: an optionally quoted, optionally dotted
+ * identifier. Subqueries and comma-joined tables are deliberately not matched,
+ * because rewriting those silently would change the query's meaning.
+ */
+const FROM_TARGET = /\b(from)\s+("(?:[^"]|"")*"|`[^`]*`|[A-Za-z_][\w.]*)/i;
+
+/** Reads the FROM target of a statement, if any. */
+export function extractFromTarget(sql: string): { table: string; start: number; end: number } | undefined {
+  const match = FROM_TARGET.exec(sql);
+  if (!match) {
+    return undefined;
+  }
+  const raw = match[2];
+  const table = raw.startsWith('"') ? raw.slice(1, -1).replace(/""/g, '"') : raw.startsWith('`') ? raw.slice(1, -1) : raw;
+  const start = match.index + match[0].length - raw.length;
+  return { table, start, end: start + raw.length };
+}
+
+/**
+ * Rewrites only the stream named after FROM, leaving the rest of the statement
+ * untouched.
+ *
+ * This is what the stream picker uses: picking a stream must not discard a
+ * WHERE clause, a projection or a LIMIT the user wrote by hand. When there is
+ * no FROM clause yet, a minimal SELECT is seeded.
+ */
+export function retargetStream(sql: string, table: string): string {
+  const quoted = `"${table.replace(/"/g, '""')}"`;
+  const target = extractFromTarget(sql);
+  if (!target) {
+    const trimmed = sql.trim();
+    return trimmed === '' ? `SELECT * FROM ${quoted} LIMIT 100` : `${trimmed} FROM ${quoted}`;
+  }
+  return sql.slice(0, target.start) + quoted + sql.slice(target.end);
+}
+
 export function extractFirstTable(sql: string): string | undefined {
   const match = /\bfrom\s+("([^"]+)"|`([^`]+)`|([A-Za-z_][\w.]*))/i.exec(sql);
   if (!match) {

@@ -1,33 +1,77 @@
-# This GitHub Action automates the process of building Grafana plugins.
-# (For more information, see https://github.com/grafana/plugin-actions/blob/main/build-plugin/README.md)
+# Builds the plugin archive and attaches it to a GitHub release.
+#
+# This deliberately does not use grafana/plugin-actions/build-plugin: that
+# action runs @grafana/plugin-validator, whose osv-scanner fails the build on
+# CVEs in transitive dev dependencies locked by @grafana/* itself
+# (browserslist, fast-uri, js-yaml, postcss, ws, ...), plus a "Go SDK older
+# than 5 months" check that would break the release every few months. The
+# plugin ships from GitHub releases, not the Grafana catalogue, so those gates
+# do not apply here.
 name: Release
 
 on:
   push:
     tags:
-      - 'v*' # Run workflow on version tags, e.g. v1.0.0.
+      - 'v*'
 
-permissions: read-all
+permissions:
+  contents: write
 
 jobs:
   release:
-    permissions:
-      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - uses: grafana/plugin-actions/build-plugin@main # zizmor: ignore[unpinned-uses] provided by grafana
-        # Uncomment to enable plugin signing
-        # (For more info on how to generate the access policy token see https://grafana.com/developers/plugin-tools/publish-a-plugin/sign-a-plugin#generate-an-access-policy-token)
-        #with:
-        # Make sure to save the token in your repository secrets
-        # policy_token: $
-        # Usage of GRAFANA_API_KEY is deprecated, prefer `policy_token` option above
-        #grafana_token: $
+      - uses: actions/setup-node@v4
         with:
-          go-version: "1.24.6" 
-          node-version: "22"
-          backend-target: "build:linux build:darwin build:darwinARM64 build:linuxARM64"
+          node-version: '22'
+          cache: 'npm'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.6'
+
+      - name: Install mage
+        run: go install github.com/magefile/mage@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build backend for every supported platform
+        run: mage -v
+
+      - name: Package archive
+        run: |
+          set -euo pipefail
+          PLUGIN_ID=$(jq -r .id dist/plugin.json)
+          PLUGIN_VERSION=$(jq -r .info.version dist/plugin.json)
+
+          # The tag must match the version in plugin.json, otherwise the
+          # release would carry a misleading name.
+          if [ "v${PLUGIN_VERSION}" != "${GITHUB_REF_NAME}" ]; then
+            echo "plugin.json says v${PLUGIN_VERSION} but the tag is ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
+          ARCHIVE="${PLUGIN_ID}-${PLUGIN_VERSION}.zip"
+          mv dist "$PLUGIN_ID"
+          zip -r "$ARCHIVE" "$PLUGIN_ID"
+          sha1sum "$ARCHIVE" | cut -f1 -d' ' > "$ARCHIVE.sha1"
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.zip
+            *.zip.sha1
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

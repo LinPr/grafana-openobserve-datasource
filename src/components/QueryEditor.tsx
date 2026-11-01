@@ -15,6 +15,7 @@ import {
   InlineField,
   InlineSwitch,
   Input,
+  RadioButtonGroup,
   Select,
   Stack,
 } from '@grafana/ui';
@@ -29,7 +30,7 @@ import {
   ResultFormat,
   StreamType,
 } from '../types';
-import { completionFetchFields, extractFirstTable } from '../utils/completion';
+import { completionFetchFields, extractFirstTable, retargetStream } from '../utils/completion';
 
 type Props = QueryEditorProps<OpenObserveDataSource, OpenObserveQuery, OpenObserveOptions>;
 
@@ -117,12 +118,17 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
     [onChange, onRunQuery, queryWithDefaults]
   );
 
-  const onStreamTypeChange = (option: SelectableValue<StreamType>) => {
-    const nextType = option.value ?? 'logs';
+  const onStreamTypeChange = (value: StreamType) => {
+    const nextType = value ?? 'logs';
+    if (nextType === streamType) {
+      return;
+    }
+    // Switching the stream type only re-scopes which catalogue the stream
+    // picker lists. The statement itself is untouched: it is still valid SQL
+    // for whatever stream is named in its FROM clause.
     patch(
       {
         queryType: nextType,
-        table: undefined,
         // PromQL only exists for metrics in OpenObserve.
         queryMode: nextType === 'metrics' ? queryWithDefaults.queryMode ?? 'sql' : 'sql',
       },
@@ -140,15 +146,13 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
 
   const onStreamChange = (option: SelectableValue<string>) => {
     const table = option.value;
-    let rawSql = queryWithDefaults.rawSql ?? '';
-    if (table) {
-      if (/\bfrom\s+("([^"]+)"|`([^`]+)`|[A-Za-z_][\w.]*)/i.test(rawSql)) {
-        rawSql = rawSql.replace(/\bfrom\s+("([^"]+)"|`([^`]+)`|[A-Za-z_][\w.]*)/i, `FROM "${table}"`);
-      } else {
-        rawSql = `SELECT * FROM "${table}" LIMIT 100`;
-      }
+    if (!table) {
+      patch({ table: undefined }, true);
+      return;
     }
-    patch({ table, rawSql }, true);
+    // Only the FROM target is rewritten. Everything else in the statement --
+    // the projection, WHERE, GROUP BY, LIMIT -- is left byte for byte alone.
+    patch({ table, rawSql: retargetStream(queryWithDefaults.rawSql ?? '', table) }, true);
   };
 
   const onSqlChange = (value: string) => {
@@ -197,12 +201,14 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
   return (
     <div>
       <Stack direction="row" gap={1} wrap>
-        <InlineField label="Stream type" tooltip="Which OpenObserve stream type the SQL runs against">
-          <Select<StreamType>
-            inputId="query-editor-stream-type"
-            width={18}
-            value={streamType}
+        {/*
+          A flat segmented control instead of a dropdown: there are only three
+          stream types, and switching between them is a frequent action.
+        */}
+        <InlineField label="Stream type" tooltip="Which OpenObserve stream type the query runs against">
+          <RadioButtonGroup<StreamType>
             options={STREAM_TYPES}
+            value={streamType}
             onChange={onStreamTypeChange}
           />
         </InlineField>
