@@ -80,11 +80,11 @@ func (fb *FrameBuilder) BuildFrames(rs *ResultSet, opts FrameOptions) (data.Fram
 		}
 		return frames, nil
 	case FormatTrace:
-		frame, err := fb.buildTraceFrame(rs, opts)
+		frames, err := fb.buildTraceFrames(rs, opts)
 		if err != nil {
 			return data.Frames{fb.buildTableFrame(rs, opts)}, nil
 		}
-		return data.Frames{frame}, nil
+		return frames, nil
 	default:
 		return data.Frames{fb.buildTableFrame(rs, opts)}, nil
 	}
@@ -366,63 +366,87 @@ func labelsToDataLabels(labels map[string]string) data.Labels {
 	return out
 }
 
-// buildTraceFrame renders spans as a Grafana trace frame, so Explore shows the
-// native trace view with the waterfall.
-func (fb *FrameBuilder) buildTraceFrame(rs *ResultSet, opts FrameOptions) (*data.Frame, error) {
-	get := func(row []any, name string) any {
-		idx := rs.ColumnIndex(name)
-		if idx < 0 || idx >= len(row) {
-			return nil
-		}
-		return row[idx]
-	}
-	str := func(row []any, name string) string { return toString(get(row, name)) }
-	num := func(row []any, name string) int64 { return toInt64(get(row, name)) }
-
-	rows := rs.Rows
-	if len(rows) == 0 {
+// buildTraceFrames renders spans as Grafana trace frames, one per trace.
+//
+// Grafana's trace view only draws the first frame, but returning every trace
+// still matters: the remaining frames are valid tables in the panel data, so a
+// query that returns several traces is browsable instead of silently showing a
+// single one. Each frame carries its trace id, which is what the panel uses as
+// its title.
+func (fb *FrameBuilder) buildTraceFrames(rs *ResultSet, opts FrameOptions) (data.Frames, error) {
+	if len(rs.Rows) == 0 {
 		return nil, fmt.Errorf("no spans returned")
 	}
 
-	// Pick the trace to display: explicit field value if configured, else all
-	// rows of the first trace id we see.
-	targetTrace := ""
+	// Group the rows by trace id, keeping first-seen order so the newest trace
+	// (the query usually orders by start_time desc) is the one Grafana draws.
+	order := make([]string, 0, 8)
+	grouped := make(map[string][][]any, 8)
+	for _, row := range rs.Rows {
+		id := toString(rowValue(rs, row, "trace_id"))
+		if id == "" {
+			continue
+		}
+		if _, seen := grouped[id]; !seen {
+			order = append(order, id)
+		}
+		grouped[id] = append(grouped[id], row)
+	}
+
+	// An explicit trace id in the query narrows the result to that trace.
 	if opts.TraceIDField != "" {
-		targetTrace = opts.TraceIDField
-	} else {
-		for _, row := range rows {
-			if id := str(row, "trace_id"); id != "" {
-				targetTrace = id
-				break
-			}
+		if rows, ok := grouped[opts.TraceIDField]; ok {
+			order = []string{opts.TraceIDField}
+			grouped = map[string][][]any{opts.TraceIDField: rows}
 		}
 	}
 
-	selected := make([][]any, 0, len(rows))
-	for _, row := range rows {
-		if targetTrace != "" && str(row, "trace_id") != targetTrace {
-			continue
+	if len(order) == 0 {
+		return nil, fmt.Errorf("no spans with a trace id returned")
+	}
+
+	frames := make(data.Frames, 0, len(order))
+	for _, id := range order {
+		frames = append(frames, fb.buildOneTraceFrame(rs, opts, id, grouped[id]))
+	}
+
+	// Grafana's trace view draws a single frame, so a query that returns many
+	// traces would otherwise look like it silently dropped the rest. Say so on
+	// the frame that is actually displayed.
+	if len(frames) > 1 && opts.TraceIDField == "" {
+		if frames[0].Meta.Notices == nil {
+			frames[0].Meta.Notices = []data.Notice{}
 		}
-		selected = append(selected, row)
+		frames[0].Meta.Notices = append(frames[0].Meta.Notices, data.Notice{
+			Severity: data.NoticeSeverityInfo,
+			Text: fmt.Sprintf(
+				"%d traces matched; the trace view shows the first one (%s). Add `WHERE trace_id = '<id>'` to inspect another, or switch Format to Table to list them all.",
+				len(frames), order[0]),
+		})
 	}
-	if len(selected) == 0 {
-		return nil, fmt.Errorf("no spans for trace %q", targetTrace)
+	return frames, nil
+}
+
+// rowValue returns one cell of a row by column name.
+func rowValue(rs *ResultSet, row []any, name string) any {
+	idx := rs.ColumnIndex(name)
+	if idx < 0 || idx >= len(row) {
+		return nil
 	}
+	return row[idx]
+}
+
+// buildOneTraceFrame renders the spans of a single trace.
+func (fb *FrameBuilder) buildOneTraceFrame(rs *ResultSet, opts FrameOptions, traceID string, selected [][]any) *data.Frame {
+	get := func(row []any, name string) any { return rowValue(rs, row, name) }
+	str := func(row []any, name string) string { return toString(get(row, name)) }
+	num := func(row []any, name string) int64 { return toInt64(get(row, name)) }
+
 	if len(selected) > 50000 {
 		selected = selected[:50000]
 	}
 
-	// Grafana expects milliseconds for startTime/duration; OpenObserve returns
-	// start/end in nanoseconds and duration in microseconds.
-	minStart := int64(0)
-	for i, row := range selected {
-		start := num(row, "start_time")
-		if i == 0 || start < minStart {
-			minStart = start
-		}
-	}
-
-	var traceID, serviceName, operationName []string
+	var ids, serviceName, operationName []string
 	var spanID, parentSpanID []string
 	var startTime, duration []float64
 	var tags, serviceTags []json.RawMessage
@@ -441,31 +465,30 @@ func (fb *FrameBuilder) buildTraceFrame(rs *ResultSet, opts FrameOptions) (*data
 		if parent == "" {
 			parent = str(row, "parent_span_id")
 		}
-		svc := str(row, "service_name")
-		op := str(row, "operation_name")
 
-		traceID = append(traceID, targetTrace)
+		ids = append(ids, traceID)
 		spanID = append(spanID, span)
 		parentSpanID = append(parentSpanID, parent)
+		// Grafana expects milliseconds; OpenObserve returns start/end in
+		// nanoseconds and duration in microseconds.
 		startTime = append(startTime, float64(start)/1e6)
 		duration = append(duration, float64(durUS)/1000)
-		serviceName = append(serviceName, svc)
-		operationName = append(operationName, op)
+		serviceName = append(serviceName, str(row, "service_name"))
+		operationName = append(operationName, str(row, "operation_name"))
 		serviceTags = append(serviceTags, spanAttributesJSON(row, rs, true))
 		tags = append(tags, spanAttributesJSON(row, rs, false))
-		code := num(row, "status_code")
-		statusCode = append(statusCode, code)
+		statusCode = append(statusCode, num(row, "status_code"))
 		statusMessage = append(statusMessage, str(row, "status_message"))
 		spanKind = append(spanKind, str(row, "span_kind"))
 	}
 
-	frame := data.NewFrame("traces")
+	frame := data.NewFrame(traceID)
 	frame.Meta = &data.FrameMeta{
 		PreferredVisualization: data.VisTypeTrace,
 		ExecutedQueryString:    opts.ExecutedQuery,
 	}
 	frame.Fields = append(frame.Fields,
-		data.NewField("traceID", nil, traceID),
+		data.NewField("traceID", nil, ids),
 		data.NewField("spanID", nil, spanID),
 		data.NewField("parentSpanID", nil, parentSpanID),
 		data.NewField("operationName", nil, operationName),
@@ -478,7 +501,7 @@ func (fb *FrameBuilder) buildTraceFrame(rs *ResultSet, opts FrameOptions) (*data
 		data.NewField("statusMessage", nil, statusMessage),
 		data.NewField("spanKind", nil, spanKind),
 	)
-	return frame, nil
+	return frame
 }
 
 // spanAttributesJSON encodes a span row as the key/value tag array Grafana's

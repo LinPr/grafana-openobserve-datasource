@@ -3,6 +3,7 @@ package openobserve_test
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/LinPr/grafana-openobserve-datasource/pkg/openobserve"
@@ -122,9 +123,19 @@ func TestBuildTraceFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildFrames: %v", err)
 	}
-	if len(frames) != 1 {
-		t.Fatalf("frames = %d, want 1", len(frames))
+
+	// Every trace in the result gets its own frame; dropping the others would
+	// hide data the query returned.
+	distinct := map[string]bool{}
+	for _, hit := range resp.Hits {
+		if id, ok := hit["trace_id"].(string); ok && id != "" {
+			distinct[id] = true
+		}
 	}
+	if len(frames) != len(distinct) {
+		t.Fatalf("frames = %d, want one per trace (%d)", len(frames), len(distinct))
+	}
+
 	frame := frames[0]
 	if frame.Meta.PreferredVisualization != "trace" {
 		t.Fatalf("preferred visualization = %q, want trace", frame.Meta.PreferredVisualization)
@@ -146,6 +157,21 @@ func TestBuildTraceFrame(t *testing.T) {
 		}
 	}
 
+	// Each frame carries exactly one trace id, repeated for its spans.
+	idField := frame.Fields[0]
+	firstID, _ := idField.At(0).(string)
+	if firstID == "" {
+		t.Fatal("traceID[0] is empty")
+	}
+	for i := 0; i < idField.Len(); i++ {
+		if got, _ := idField.At(i).(string); got != firstID {
+			t.Errorf("frame mixes trace ids: [%d] = %q, want %q", i, got, firstID)
+		}
+	}
+	if frame.Name != firstID {
+		t.Errorf("frame name = %q, want the trace id %q", frame.Name, firstID)
+	}
+
 	// startTime must be milliseconds: the fixture's first span starts at
 	// 1793451754293460208 ns == 1793451754293.460208 ms.
 	startField := frame.Fields[6]
@@ -155,6 +181,61 @@ func TestBuildTraceFrame(t *testing.T) {
 	}
 	if first < 1.79e12 || first > 1.79e13 {
 		t.Errorf("startTime[0] = %v, expected millisecond epoch", first)
+	}
+}
+
+// When several traces come back, the frame Grafana draws says so, otherwise the
+// trace view looks like it silently dropped the rest.
+func TestBuildTraceFramesNoticesMultipleTraces(t *testing.T) {
+	resp := loadSearchResponse(t, "search_traces_spans.json")
+	rs := openobserve.NewResultSet(resp.Hits, nil)
+
+	frames, err := openobserve.NewFrameBuilder().BuildFrames(rs, openobserve.FrameOptions{
+		Format: openobserve.FormatTrace,
+	})
+	if err != nil {
+		t.Fatalf("BuildFrames: %v", err)
+	}
+	if len(frames) < 2 {
+		t.Skip("fixture has a single trace")
+	}
+	notices := frames[0].Meta.Notices
+	if len(notices) == 0 {
+		t.Fatal("no notice on the first frame although several traces matched")
+	}
+	if !strings.Contains(notices[0].Text, "trace_id") {
+		t.Errorf("notice = %q, want it to explain how to pick another trace", notices[0].Text)
+	}
+}
+
+// Picking a single trace id narrows the result to that trace.
+func TestBuildTraceFramesHonoursExplicitTraceID(t *testing.T) {
+	resp := loadSearchResponse(t, "search_traces_spans.json")
+	rs := openobserve.NewResultSet(resp.Hits, nil)
+
+	wanted := ""
+	for _, hit := range resp.Hits {
+		if id, ok := hit["trace_id"].(string); ok && id != "" {
+			wanted = id
+			break
+		}
+	}
+	if wanted == "" {
+		t.Skip("fixture has no trace id")
+	}
+
+	frames, err := openobserve.NewFrameBuilder().BuildFrames(rs, openobserve.FrameOptions{
+		Format:       openobserve.FormatTrace,
+		TraceIDField: wanted,
+	})
+	if err != nil {
+		t.Fatalf("BuildFrames: %v", err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("frames = %d, want 1 for an explicit trace id", len(frames))
+	}
+	if frames[0].Name != wanted {
+		t.Errorf("frame name = %q, want %q", frames[0].Name, wanted)
 	}
 }
 
