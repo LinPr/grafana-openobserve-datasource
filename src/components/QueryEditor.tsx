@@ -276,15 +276,19 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
           />
         </InlineField>
 
-        <InlineField label="Format" tooltip="How the response is shaped for the panel">
-          <Select<ResultFormat>
-            inputId="query-editor-format"
-            width={18}
-            value={queryWithDefaults.format ?? 'auto'}
-            options={FORMAT_OPTIONS as Array<SelectableValue<ResultFormat>>}
-            onChange={onFormatChange}
-          />
-        </InlineField>
+        {/* Traces pick their frame shape from the query type, so Format would
+            only be a second, conflicting switch. */}
+        {streamType !== 'traces' && (
+          <InlineField label="Format" tooltip="How the response is shaped for the panel">
+            <Select<ResultFormat>
+              inputId="query-editor-format"
+              width={18}
+              value={queryWithDefaults.format ?? 'auto'}
+              options={FORMAT_OPTIONS as Array<SelectableValue<ResultFormat>>}
+              onChange={onFormatChange}
+            />
+          </InlineField>
+        )}
 
         {streamType !== 'traces' && (
         <InlineField label="Stream" tooltip="The stream the query selects from" grow>

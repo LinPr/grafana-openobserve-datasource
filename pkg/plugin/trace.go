@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -185,6 +186,12 @@ func parseDurationUS(raw string) (int64, error) {
 // Two frames are returned: the table the user reads, and a hidden frame that
 // carries the trace ids as data links so a row can jump straight to the trace
 // view. Grafana shows the table; the link makes the list navigable.
+// buildTraceListFrames renders the trace search result.
+//
+// The columns match what Grafana's Jaeger plugin returns for a search, so the
+// trace list behaves the same way here: traceID / traceName / startTime /
+// duration, with startTime in milliseconds and duration in microseconds. A
+// trace name is "service: operation", which is what Jaeger shows in its list.
 func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *time.Location) data.Frames {
 	if loc == nil {
 		loc = time.UTC
@@ -192,97 +199,100 @@ func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *
 	summaries := openobserve.SummarizeTraces(rs)
 
 	traceID := make([]string, 0, len(summaries))
-	service := make([]string, 0, len(summaries))
-	operation := make([]string, 0, len(summaries))
-	start := make([]*time.Time, 0, len(summaries))
-	duration := make([]float64, 0, len(summaries))
-	spans := make([]int64, 0, len(summaries))
-	services := make([]int64, 0, len(summaries))
+	traceName := make([]string, 0, len(summaries))
+	startMS := make([]int64, 0, len(summaries))
+	durationUS := make([]float64, 0, len(summaries))
 
 	for _, s := range summaries {
-		ts := time.UnixMicro(s.StartTimeUS).In(loc)
+		name := s.OperationName
+		if s.ServiceName != "" {
+			if name == "" {
+				name = s.ServiceName
+			} else {
+				name = s.ServiceName + ": " + name
+			}
+		}
 		traceID = append(traceID, s.TraceID)
-		service = append(service, s.ServiceName)
-		operation = append(operation, s.OperationName)
-		start = append(start, &ts)
-		// Microseconds -> milliseconds, which is what Grafana expects.
-		duration = append(duration, float64(s.DurationUS)/1000)
-		spans = append(spans, s.SpanCount)
-		services = append(services, s.ServiceCount)
+		traceName = append(traceName, name)
+		// Jaeger reports startTime in milliseconds and duration in microseconds.
+		startMS = append(startMS, s.StartTimeUS/1000)
+		durationUS = append(durationUS, float64(s.DurationUS))
 	}
 
-	table := data.NewFrame("traces",
+	frame := data.NewFrame("traces",
 		data.NewField("traceID", nil, traceID),
-		data.NewField("startTime", nil, start),
-		data.NewField("duration_ms", nil, duration),
-		data.NewField("spans", nil, spans),
-		data.NewField("services", nil, services),
-		data.NewField("service", nil, service),
-		data.NewField("operation", nil, operation),
-	)
-	table.Meta = &data.FrameMeta{
-		PreferredVisualization: data.VisTypeTable,
-		ExecutedQueryString:    executedQuery,
-	}
-
-	if len(summaries) == 0 {
-		return data.Frames{table}
-	}
-
-	// Opening a trace is the natural next step from a list row, but it needs the
-	// editor to switch to TraceID mode, which a plain data link cannot do. Point
-	// the id at the Explore trace view instead so the click still does something
-	// useful.
-	for _, field := range table.Fields {
-		if field.Name != "traceID" {
-			continue
-		}
-		field.Config = &data.FieldConfig{
-			Links: []data.DataLink{
-				{
-					Title:       "Open trace in OpenObserve",
-					URL:         "${__value.raw}",
-					TargetBlank: true,
-				},
-			},
-		}
-	}
-	return data.Frames{table}
-}
-
-// buildServiceGraphFrames renders the service dependency graph.
-func buildServiceGraphFrames(rs *openobserve.ResultSet) data.Frames {
-	edges := openobserve.SummarizeServiceEdges(rs)
-
-	source := make([]string, 0, len(edges))
-	target := make([]string, 0, len(edges))
-	calls := make([]int64, 0, len(edges))
-	avg := make([]float64, 0, len(edges))
-	label := make([]string, 0, len(edges))
-
-	for _, e := range edges {
-		source = append(source, e.ParentService)
-		target = append(target, e.ChildService)
-		calls = append(calls, e.Calls)
-		avg = append(avg, e.AvgDurationUS/1000)
-		label = append(label, fmt.Sprintf("%s → %s", e.ParentService, e.ChildService))
-	}
-
-	frame := data.NewFrame("service_graph",
-		data.NewField("source", nil, source),
-		data.NewField("target", nil, target),
-		data.NewField("calls", nil, calls),
-		data.NewField("avg_duration_ms", nil, avg),
-		data.NewField("edge", nil, label),
+		data.NewField("traceName", nil, traceName),
+		data.NewField("startTime", nil, startMS),
+		data.NewField("duration", nil, durationUS),
 	)
 	frame.Meta = &data.FrameMeta{
 		PreferredVisualization: data.VisTypeTable,
-		Notices: []data.Notice{{
-			Severity: data.NoticeSeverityInfo,
-			Text: "Service dependency graph: each row is one caller → callee pair, " +
-				"derived from span parent/child links. Use a Node graph panel with " +
-				"`source`/`target`/`calls` to draw it.",
-		}},
+		ExecutedQueryString:    executedQuery,
 	}
 	return data.Frames{frame}
+}
+
+// buildServiceGraphFrames renders the service dependency graph in the shape
+// Grafana's node graph panel consumes.
+//
+// This mirrors what the Jaeger plugin returns for its dependency graph: two
+// frames, one with the nodes (id + title) and one with the edges (id, source,
+// target, mainstat), both tagged with the nodeGraph visualisation. Grafana then
+// draws the graph itself, so the panel needs no extra configuration.
+func buildServiceGraphFrames(rs *openobserve.ResultSet) data.Frames {
+	edges := openobserve.SummarizeServiceEdges(rs)
+
+	// Stable node ids: the node graph matches edges to nodes by id, and using
+	// the service name keeps them readable in the panel.
+	seen := map[string]bool{}
+	nodeIDs := make([]string, 0, len(edges)*2)
+	for _, e := range edges {
+		for _, svc := range []string{e.ParentService, e.ChildService} {
+			if svc == "" || seen[svc] {
+				continue
+			}
+			seen[svc] = true
+			nodeIDs = append(nodeIDs, svc)
+		}
+	}
+	sort.Strings(nodeIDs)
+
+	edgeIDs := make([]string, 0, len(edges))
+	sources := make([]string, 0, len(edges))
+	targets := make([]string, 0, len(edges))
+	mainstats := make([]float64, 0, len(edges))
+	for _, e := range edges {
+		edgeIDs = append(edgeIDs, fmt.Sprintf("%s->%s", e.ParentService, e.ChildService))
+		sources = append(sources, e.ParentService)
+		targets = append(targets, e.ChildService)
+		// The edge label is the call count, which is what Jaeger shows.
+		mainstats = append(mainstats, float64(e.Calls))
+	}
+
+	nodes := data.NewFrame("nodes",
+		data.NewField("id", nil, nodeIDs),
+		data.NewField("title", nil, nodeIDs),
+	)
+	nodes.Meta = &data.FrameMeta{
+		PreferredVisualization: data.VisTypeNodeGraph,
+	}
+
+	edgeFrame := data.NewFrame("edges",
+		data.NewField("id", nil, edgeIDs),
+		data.NewField("source", nil, sources),
+		data.NewField("target", nil, targets),
+		data.NewField("mainstat", nil, mainstats),
+	)
+	edgeFrame.Meta = &data.FrameMeta{
+		PreferredVisualization: data.VisTypeNodeGraph,
+	}
+
+	if len(edges) == 0 {
+		nodes.Meta.Notices = []data.Notice{{
+			Severity: data.NoticeSeverityInfo,
+			Text: "No caller/callee pairs in this range. The graph is derived from spans " +
+				"that carry a parent span id, so a stream of single-span traces produces no edges.",
+		}}
+	}
+	return data.Frames{nodes, edgeFrame}
 }

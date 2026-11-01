@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
 
 // newTestDatasource spins up a fake OpenObserve and returns a datasource
@@ -477,8 +478,16 @@ func TestQueryDataTraceSearchBuildsListFrame(t *testing.T) {
 	if got := frames[0].Fields[0].Len(); got != 2 {
 		t.Errorf("rows = %d, want 2 traces", got)
 	}
-	if frames[0].Fields[0].Name != "traceID" {
-		t.Errorf("first column = %q, want traceID", frames[0].Fields[0].Name)
+	// The columns mirror Grafana's Jaeger plugin, so the list reads the same.
+	wantCols := []string{"traceID", "traceName", "startTime", "duration"}
+	for i, want := range wantCols {
+		if i >= len(frames[0].Fields) || frames[0].Fields[i].Name != want {
+			t.Errorf("column %d = %q, want %q", i, frames[0].Fields[i].Name, want)
+		}
+	}
+	// traceName is "service: operation", like Jaeger renders it.
+	if got := frames[0].Fields[1].At(0); got != "vnet-bff: HTTP GET" {
+		t.Errorf("traceName = %q, want \"vnet-bff: HTTP GET\"", got)
 	}
 }
 
@@ -523,17 +532,39 @@ func TestQueryDataTraceGraphBuildsEdges(t *testing.T) {
 	if len(frames) == 0 {
 		t.Fatal("no graph frame")
 	}
-	frame := frames[0]
-	names := map[string]bool{}
-	for _, f := range frame.Fields {
-		names[f.Name] = true
+	// Two frames in the node-graph shape Grafana's panel consumes: nodes and
+	// edges, both tagged with the nodeGraph visualisation.
+	if len(frames) != 2 {
+		t.Fatalf("frames = %d, want nodes + edges", len(frames))
 	}
-	for _, want := range []string{"source", "target", "calls"} {
-		if !names[want] {
-			t.Errorf("graph frame is missing %q", want)
+	nodes, edges := frames[0], frames[1]
+	for _, f := range []*data.Frame{nodes, edges} {
+		if f.Meta == nil || f.Meta.PreferredVisualization != data.VisTypeNodeGraph {
+			t.Errorf("%s is not marked as a node graph", f.Name)
 		}
 	}
-	if got := frame.Fields[0].Len(); got != 2 {
+	names := func(f *data.Frame) map[string]bool {
+		out := map[string]bool{}
+		for _, field := range f.Fields {
+			out[field.Name] = true
+		}
+		return out
+	}
+	for _, want := range []string{"id", "title"} {
+		if !names(nodes)[want] {
+			t.Errorf("node frame is missing %q", want)
+		}
+	}
+	for _, want := range []string{"id", "source", "target", "mainstat"} {
+		if !names(edges)[want] {
+			t.Errorf("edge frame is missing %q", want)
+		}
+	}
+	// Three services across the two edges -> three nodes.
+	if got := nodes.Fields[0].Len(); got != 3 {
+		t.Errorf("nodes = %d, want 3 (gateway, orders, db)", got)
+	}
+	if got := edges.Fields[0].Len(); got != 2 {
 		t.Errorf("edges = %d, want 2", got)
 	}
 }
