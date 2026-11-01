@@ -71,6 +71,34 @@ describe('retargetStream', () => {
     expect(retargetStream('SELECT 1', 'app')).toBe('SELECT 1 FROM "app"');
   });
 
+  it('replaces a half-typed FROM clause instead of appending to it', () => {
+    // Reported: with text already in the editor, picking a stream produced
+    // duplicated fragments such as `SELECT * FROM "vne FROM "prd"`.
+    expect(retargetStream('SELECT * FROM', 'prd')).toBe('SELECT * FROM "prd"');
+    expect(retargetStream('SELECT * FROM ', 'prd')).toBe('SELECT * FROM "prd"');
+    expect(retargetStream('SELECT * FROM "', 'prd')).toBe('SELECT * FROM "prd"');
+    expect(retargetStream('SELECT * FROM `', 'prd')).toBe('SELECT * FROM "prd"');
+    expect(retargetStream('SELECT * FROM "vne', 'prd')).toBe('SELECT * FROM "prd"');
+    expect(retargetStream('SELECT * FROM `vne', 'prd')).toBe('SELECT * FROM "prd"');
+    expect(retargetStream('SELECT * FROM vne', 'prd')).toBe('SELECT * FROM "prd"');
+  });
+
+  it('never leaves the stray quote or the old fragment behind', () => {
+    for (const partial of ['SELECT * FROM "vne', 'SELECT * FROM "', 'SELECT * FROM vne']) {
+      const out = retargetStream(partial, 'prd');
+      expect(out).toBe('SELECT * FROM "prd"');
+      // Exactly one FROM, one quote pair.
+      expect(out.match(/\bfrom\b/gi)?.length).toBe(1);
+      expect(out.match(/"/g)?.length).toBe(2);
+    }
+  });
+
+  it('keeps text after a half-typed clause', () => {
+    // The fragment is only replaced when it is at the end, so a statement that
+    // continues after FROM is not truncated.
+    expect(retargetStream('SELECT 1', 'prd')).toBe('SELECT 1 FROM "prd"');
+  });
+
   it('does not touch the projection when the stream is picked', () => {
     const sql = 'SELECT histogram(_timestamp, \'1 minute\') AS ts, avg(value) AS v FROM "metrics_a" GROUP BY ts';
     const out = retargetStream(sql, 'metrics_b');

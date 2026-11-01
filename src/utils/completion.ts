@@ -135,21 +135,43 @@ export function extractFromTarget(sql: string): { table: string; start: number; 
 }
 
 /**
+ * Matches a FROM clause whose target is still being typed: an unclosed quote or
+ * a bare word fragment right after FROM. Used only to know what to replace when
+ * the statement is incomplete.
+ */
+const INCOMPLETE_FROM = /\b(from)\s*(?:"[^"]*|`[^`]*|[A-Za-z_][\w.]*)?\s*$/i;
+
+/**
  * Rewrites only the stream named after FROM, leaving the rest of the statement
  * untouched.
  *
  * This is what the stream picker uses: picking a stream must not discard a
- * WHERE clause, a projection or a LIMIT the user wrote by hand. When there is
- * no FROM clause yet, a minimal SELECT is seeded.
+ * WHERE clause, a projection or a LIMIT the user wrote by hand.
+ *
+ * A half-typed statement is handled by *replacing* the fragment rather than
+ * appending to it: picking a stream while the editor says `SELECT * FROM "vne`
+ * yields `SELECT * FROM "prd"`, not `SELECT * FROM "vne FROM "prd"`. When there
+ * is no FROM clause at all the clause is appended, and an empty editor gets a
+ * minimal SELECT.
  */
 export function retargetStream(sql: string, table: string): string {
   const quoted = `"${table.replace(/"/g, '""')}"`;
   const target = extractFromTarget(sql);
-  if (!target) {
-    const trimmed = sql.trim();
-    return trimmed === '' ? `SELECT * FROM ${quoted} LIMIT 100` : `${trimmed} FROM ${quoted}`;
+  if (target) {
+    return sql.slice(0, target.start) + quoted + sql.slice(target.end);
   }
-  return sql.slice(0, target.start) + quoted + sql.slice(target.end);
+
+  // No complete target. Replace a trailing, half-typed FROM clause if there is
+  // one, so the fragment the user was typing does not survive next to the new
+  // stream name.
+  const incomplete = INCOMPLETE_FROM.exec(sql);
+  if (incomplete) {
+    const fromStart = incomplete.index + incomplete[0].indexOf(incomplete[1]);
+    return sql.slice(0, fromStart) + `FROM ${quoted}`;
+  }
+
+  const trimmed = sql.trimEnd();
+  return trimmed === '' ? `SELECT * FROM ${quoted} LIMIT 100` : `${trimmed} FROM ${quoted}`;
 }
 
 export function extractFirstTable(sql: string): string | undefined {
