@@ -212,7 +212,9 @@ func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *
 				name = s.ServiceName + ": " + name
 			}
 		}
-		ts := time.UnixMicro(s.StartTimeUS).In(loc)
+		// start_time is a nanosecond epoch here (19 digits); reading it as
+		// microseconds put every trace in the year 2106.
+		ts := time.Unix(0, s.StartTimeNS).In(loc)
 		traceID = append(traceID, s.TraceID)
 		traceName = append(traceName, name)
 		// A real time field and a milliseconds field let Grafana format both

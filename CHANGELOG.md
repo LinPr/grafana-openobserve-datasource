@@ -1,5 +1,36 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+
+- Trace ids in the search table open the trace inside Grafana (internal link to
+  Explore's split view), instead of requiring the id to be pasted by hand.
+- The service dependency graph is drawn as a Grafana node graph, and a Service
+  Name filter selects the edges touching that service in either direction.
+
+### Changed
+
+- The **Format** selector is gone. The frame shape follows from the stream type
+  and the statement, so a second switch could only contradict it.
+- Trace `startTime` is a real time column and `duration` is expressed in
+  milliseconds, so both read as a timestamp and a duration.
+- The **Limit** field and the SQL `LIMIT` mirror each other, for logs, metrics
+  and traces alike.
+- Switching stream type runs the query once the new stream is adopted, instead
+  of leaving stale results on screen.
+- Service graph edges are derived from OpenObserve's inferred service name, so
+  a client span attributes to the system it calls rather than to the caller.
+
+### Fixed
+
+- Trace `startTime` showed the year 2106: the nanosecond epoch was read as
+  microseconds.
+- Graph queries with a Service Name failed with `unknown field 'child'`.
+- Trace queries were dropped before being sent when they carried a leftover
+  `rawSql` from another stream type.
+- Trace duration was 1000x too large.
+
 ## 2.0.0 (Unreleased)
 
 Backend and query experience rewrite. The plugin id, the SQL syntax and existing

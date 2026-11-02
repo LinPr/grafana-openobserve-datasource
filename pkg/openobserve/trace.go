@@ -265,10 +265,11 @@ type TraceSummary struct {
 	TraceID       string
 	ServiceName   string
 	OperationName string
-	StartTimeUS   int64
-	DurationUS    int64
-	SpanCount     int64
-	ServiceCount  int64
+	// StartTimeNS is the trace's first span start, a nanosecond epoch.
+	StartTimeNS  int64
+	DurationUS   int64
+	SpanCount    int64
+	ServiceCount int64
 }
 
 // ServiceEdge is one edge of the dependency graph.
@@ -287,7 +288,7 @@ func SummarizeTraces(rs *ResultSet) []TraceSummary {
 			TraceID:       ToString(rowValue(rs, row, "trace_id")),
 			ServiceName:   ToString(rowValue(rs, row, "entry_service")),
 			OperationName: ToString(rowValue(rs, row, "entry_operation")),
-			StartTimeUS:   toInt64(rowValue(rs, row, "first_span")),
+			StartTimeNS:   toInt64(rowValue(rs, row, "first_span")),
 			DurationUS:    toInt64(rowValue(rs, row, "total_duration")),
 			SpanCount:     toInt64(rowValue(rs, row, "spans")),
 			ServiceCount:  toInt64(rowValue(rs, row, "services")),

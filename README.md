@@ -287,8 +287,9 @@ Point the URL at your OpenObserve server, fill in the organization (usually
 SELECT * FROM "my_logs" LIMIT 500
 ```
 
-Set **Format** to `Logs` to get level colours and the full attribute list in
-Explore.
+A `SELECT *` over a log stream renders as log lines with level colours and
+every original column as an attribute. There is no Format switch to set: the
+frame shape follows from the stream type and the statement itself.
 
 ### 3. Query metrics
 
@@ -301,17 +302,23 @@ GROUP BY ts, service_name
 ORDER BY ts
 ```
 
-Set **Format** to `Time series`. One series per `service_name`, no transformations.
+A time column plus numbers renders as a time series, one line per
+`service_name`, with no transformations.
 
 Or switch **Query mode** to `PromQL` and write `go_goroutine_count` directly.
 
 ### 4. Query traces
 
-```sql
-SELECT * FROM "my_traces" WHERE trace_id = '<id>' ORDER BY start_time
-```
+Pick the `traces` stream type, choose a trace stream, then pick a query type:
 
-Set **Format** to `Trace` and Explore renders the waterfall.
+- **Search** lists the traces matching the filters.
+- **TraceID** renders one trace as the waterfall.
+- **Graph** draws the service dependency graph.
+
+### 5. Limit
+
+The **Limit** field and the SQL `LIMIT` stay in step: typing one updates the
+other, so the panel and the statement never disagree about row counts.
 
 ### 5. Use variables and ad-hoc filters
 

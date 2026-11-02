@@ -492,6 +492,37 @@ func TestQueryDataTraceSearchBuildsListFrame(t *testing.T) {
 	}
 }
 
+// start_time is a nanosecond epoch; reading it as microseconds put every trace
+// in the year 2106.
+func TestTraceListStartTimeIsNanoseconds(t *testing.T) {
+	// 2026-11-02T14:57:46Z as a nanosecond epoch.
+	const ns int64 = 1793631466523592702
+	ds := newTestDatasource(t, http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		_, _ = rw.Write([]byte(`{"hits":[
+			{"trace_id":"aaa","first_span":1793631466523592702,"total_duration":1000,
+			 "spans":1,"entry_operation":"GET /","entry_service":"vnet-bff","services":1}
+		],"total":1}`))
+	}))
+
+	resp, err := ds.QueryData(context.Background(), queryRequest(t, map[string]any{
+		"queryType": "traces", "traceMode": "search", "table": "prd",
+	}))
+	if err != nil {
+		t.Fatalf("QueryData: %v", err)
+	}
+	frame := resp.Responses["A"].Frames[0]
+	got, ok := frame.Fields[2].At(0).(*time.Time)
+	if !ok {
+		t.Fatalf("startTime type = %T, want *time.Time", frame.Fields[2].At(0))
+	}
+	if got.Year() != 2026 {
+		t.Errorf("startTime year = %d, want 2026 (nanosecond epoch)", got.Year())
+	}
+	if diff := got.UnixNano() - ns; diff > 1000 || diff < -1000 {
+		t.Errorf("startTime = %v, want the source nanoseconds preserved", got)
+	}
+}
+
 func TestQueryDataTraceIDRequiresID(t *testing.T) {
 	ds := newTestDatasource(t, http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
 		_, _ = rw.Write([]byte(`{"hits":[]}`))
