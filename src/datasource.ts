@@ -6,8 +6,8 @@ import {
   DataSourceInstanceSettings,
   GetTagResponse,
   ScopedVars,
+  dateTime,
 } from '@grafana/data';
-import { dateTime } from '@grafana/data';
 import { DataSourceWithBackend } from '@grafana/runtime';
 import {
   DEFAULT_QUERY,
