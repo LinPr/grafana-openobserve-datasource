@@ -54,6 +54,35 @@ const QUERY_MODES: Array<SelectableValue<'sql' | 'promql'>> = [
  * editor itself. Everything that knows about OpenObserve semantics lives in the
  * Go backend.
  */
+/**
+ * Chooses the stream to adopt when the user switches the stream type.
+ *
+ * The catalogue lists every stream of a type, including ones that are stale or
+ * empty, so the first name can be a dead end -- the trace catalogue here starts
+ * with "dev" (no rows) while "prd" is the live one. This probes at most a
+ * handful of candidates and returns the first with data, falling back to the
+ * first name so the picker is never left empty.
+ */
+async function pickDefaultStream(
+  names: string[],
+  streamType: StreamType,
+  datasource: OpenObserveDataSource,
+  range?: { from: number; to: number }
+): Promise<string> {
+  const candidates = names.slice(0, 5);
+  for (const name of candidates) {
+    try {
+      const has = await datasource.streamHasData(streamType, name, range);
+      if (has) {
+        return name;
+      }
+    } catch {
+      // Probing is best effort; fall through to the next candidate.
+    }
+  }
+  return names[0];
+}
+
 export function QueryEditorSQL(props: Props): React.JSX.Element {
   const { datasource, query, onChange, onRunQuery } = props;
 
@@ -100,7 +129,7 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
     let cancelled = false;
     datasource
       .listStreams(streamType)
-      .then(names => {
+      .then(async names => {
         if (cancelled) {
           return;
         }
@@ -112,7 +141,10 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         // so the editor is immediately runnable.
         if (pendingAutoSelect.current && names.length > 0) {
           pendingAutoSelect.current = false;
-          const table = names[0];
+          // Trace catalogues list streams that may be empty (stale or unused),
+          // so the first name is not necessarily a useful default. Prefer a
+          // stream that actually has data in the panel's time range.
+          const table = await pickDefaultStream(names, streamType, datasource);
           const merged = { ...latestQuery.current, table, rawSql: retargetStream(latestQuery.current.rawSql ?? '', table) };
           latestQuery.current = merged;
           onChange(merged);

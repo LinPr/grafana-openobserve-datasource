@@ -7,6 +7,7 @@ import {
   GetTagResponse,
   ScopedVars,
 } from '@grafana/data';
+import { dateTime } from '@grafana/data';
 import { DataSourceWithBackend } from '@grafana/runtime';
 import {
   DEFAULT_QUERY,
@@ -231,6 +232,53 @@ export class OpenObserveDataSource extends DataSourceWithBackend<OpenObserveQuer
       return Array.isArray(values) ? values : [];
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Reports whether a stream has any row in the query's time range.
+   *
+   * Used to pick a useful default stream: catalogues include stale streams, and
+   * defaulting to an empty one makes a freshly switched query look broken.
+   */
+  async streamHasData(streamType: StreamType | string, stream: string, range?: { from: number; to: number }): Promise<boolean> {
+    const now = Date.now();
+    const to = range && range.to > 0 ? range.to : now;
+    const from = range && range.from > 0 ? range.from : to - 15 * 60 * 1000;
+    const probe: OpenObserveQuery = {
+      refId: 'probe',
+      queryType: streamType as OpenObserveQuery['queryType'],
+      queryMode: 'sql',
+      format: 'table',
+      // A one-row LIMIT is enough: the question is only "does anything exist?".
+      rawSql: `SELECT 1 AS present FROM "${stream.replace(/"/g, '""')}" LIMIT 1`,
+      size: 1,
+    };
+    try {
+      const response = await this.query({
+        targets: [probe],
+        range: { from: dateTime(from), to: dateTime(to), raw: { from: `now-15m`, to: 'now' } },
+        interval: '1m',
+        intervalMs: 60000,
+        maxDataPoints: 1,
+        scopedVars: {},
+        requestId: `probe-${stream}`,
+        timezone: 'utc',
+        app: CoreApp.Explore,
+        startTime: 0,
+      } as never);
+      const first = await new Promise<unknown>((resolve) => {
+        const sub = (response as { subscribe: (o: unknown) => { unsubscribe: () => void } }).subscribe({
+          next: (frame: { data?: Array<{ length?: number }> }) => {
+            resolve(frame?.data?.[0]?.length ?? 0);
+            sub.unsubscribe();
+          },
+          error: () => resolve(0),
+        });
+      });
+      return Number(first) > 0;
+    } catch {
+      return false;
     }
   }
 

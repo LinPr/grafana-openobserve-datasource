@@ -66,6 +66,7 @@ function newDatasource(overrides: Record<string, unknown> = {}) {
     listStreamColumns: jest.fn().mockResolvedValue({ vnet_bff_dev: ['body', 'severity'], alerta: ['body'] }),
     listMetricNames: jest.fn().mockResolvedValue([]),
     distinctTraceValues: jest.fn().mockResolvedValue([]),
+    streamHasData: jest.fn().mockResolvedValue(true),
     ...overrides,
   } as unknown as OpenObserveDataSource;
   return ds;

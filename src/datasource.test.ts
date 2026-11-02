@@ -157,6 +157,28 @@ describe('OpenObserveDataSource', () => {
     });
   });
 
+  it('probes whether a stream has data in the given range', async () => {
+    const ds = newDatasource();
+    // The probe runs through query(), so stub the observable it returns.
+    const sub = { unsubscribe: jest.fn() };
+    const spy = jest.spyOn(ds, 'query').mockImplementation(
+      (() => ({ subscribe: (o: { next: (v: unknown) => void }) => { o.next({ data: [{ length: 3 }] }); return sub; } })) as never
+    );
+
+    await expect(ds.streamHasData('traces', 'prd', { from: 1000, to: 2000 })).resolves.toBe(true);
+    const target = (spy.mock.calls[0][0] as { targets: Array<{ rawSql: string; size: number }> }).targets[0];
+    expect(target.rawSql).toContain('FROM "prd"');
+    expect(target.size).toBe(1);
+  });
+
+  it('reports no data when the probe returns an empty frame', async () => {
+    const ds = newDatasource();
+    jest.spyOn(ds, 'query').mockImplementation(
+      (() => ({ subscribe: (o: { next: (v: unknown) => void }) => { o.next({ data: [{ length: 0 }] }); return { unsubscribe: jest.fn() }; } })) as never
+    );
+    await expect(ds.streamHasData('traces', 'dev')).resolves.toBe(false);
+  });
+
   it('derives the stream from the SQL when the query has no table set', async () => {
     // A hand-written SQL leaves `table` empty; the ad-hoc filter still has to
     // receive column names, so the stream is read out of the statement.
