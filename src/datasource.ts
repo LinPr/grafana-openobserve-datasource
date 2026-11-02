@@ -96,6 +96,12 @@ export class OpenObserveDataSource extends DataSourceWithBackend<OpenObserveQuer
   }
 
   filterQuery(query: OpenObserveQuery): boolean {
+    // Trace queries carry their parameters in the structured fields and let the
+    // backend build the SQL, so they have no rawSql/expr. Filtering them out
+    // here dropped every trace query before it was ever sent.
+    if (query.queryType === 'traces') {
+      return Boolean(query.table || query.traceId || query.traceMode);
+    }
     return Boolean(query.rawSql || query.expr);
   }
 

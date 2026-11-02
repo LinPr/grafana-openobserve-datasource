@@ -53,6 +53,17 @@ describe('OpenObserveDataSource', () => {
     expect(ds.filterQuery({ refId: 'A', queryType: 'metrics', expr: 'up' })).toBe(true);
   });
 
+  it('keeps trace queries even though the backend writes their SQL', () => {
+    // Trace queries describe themselves with structured fields; filtering them
+    // out here meant they were never sent, so the panel always showed no data.
+    const ds = newDatasource();
+    expect(ds.filterQuery({ refId: 'A', queryType: 'traces', table: 'prd' })).toBe(true);
+    expect(ds.filterQuery({ refId: 'A', queryType: 'traces', traceMode: 'search' })).toBe(true);
+    expect(ds.filterQuery({ refId: 'A', queryType: 'traces', traceId: 'abc' })).toBe(true);
+    // A trace query with nothing configured still has nothing to run.
+    expect(ds.filterQuery({ refId: 'A', queryType: 'traces' })).toBe(false);
+  });
+
   it('applies template variables to SQL and PromQL', () => {
     const ds = newDatasource();
     const updated = ds.applyTemplateVariables(
