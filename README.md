@@ -71,12 +71,26 @@ so `rate()`, `histogram_quantile()` and label matchers all work:
 
 ![PromQL](doc/screenshot/explore_promql.png)
 
-### Native trace view
+### Traces: three query types
 
-Trace frames are built in Grafana's span format, so Explore renders the real
-waterfall with per-span timings:
+The trace editor mirrors Jaeger's three modes and the backend builds the SQL for
+each one.
 
-![Trace view](doc/screenshot/explore_trace_view.png)
+**Search** lists the traces that match the filters (service, operation, tags,
+min/max duration). The columns match what Grafana's Jaeger plugin returns:
+
+![Trace search](doc/screenshot/trace_search.png)
+
+**TraceID** loads every span of one trace in start order, so Explore draws the
+native waterfall with real parent/child nesting:
+
+![Trace waterfall](doc/screenshot/trace_waterfall.png)
+
+**Graph** derives service-to-service call counts from the span parent links and
+returns them as a node graph. A stream whose spans are all intra-service
+correctly produces no edges:
+
+![Trace graph](doc/screenshot/trace_graph.png)
 
 ### A dashboard with everything mixed
 
