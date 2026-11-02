@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 
 	"github.com/LinPr/grafana-openobserve-datasource/pkg/models"
@@ -129,9 +128,12 @@ func (d *Datasource) runQuery(ctx context.Context, q backend.DataQuery) (res bac
 	if model.QueryMode == queryModePromQL {
 		return d.runPromQLQuery(ctx, q, model)
 	}
-	// The trace editor drives its own SQL, so it must not go through the plain
-	// SQL path that expects the user to have written a statement.
-	if model.QueryType == openobserve.TraceStream && strings.TrimSpace(model.RawSql) == "" {
+	// A trace stream always uses the trace editor, which builds its own SQL.
+	// Gating this on "rawSql is empty" was wrong: the query carries a leftover
+	// statement whenever the editor was used for another stream type first, and
+	// that stale SQL sent the request down the plain SQL path, which returned no
+	// frames because the trace parameters live in the structured fields.
+	if model.QueryType == openobserve.TraceStream {
 		return d.runTraceQuery(ctx, q, model)
 	}
 	return d.runSQLQuery(ctx, q)

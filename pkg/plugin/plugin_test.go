@@ -575,3 +575,47 @@ type openobserveSearchBody struct {
 		Sql string `json:"sql"`
 	} `json:"query"`
 }
+
+// A trace query keeps a stale rawSql whenever the editor was used for another
+// stream type first. It must still go through the trace path, which is what
+// this reproduces: the request below is copied from a real failing panel.
+func TestQueryDataTraceIgnoresLeftoverRawSql(t *testing.T) {
+	var gotSQL string
+	ds := newTestDatasource(t, http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		var body openobserveSearchBody
+		_ = json.NewDecoder(req.Body).Decode(&body)
+		gotSQL = body.Query.Sql
+		_, _ = rw.Write([]byte(`{"hits":[
+			{"trace_id":"aaa","first_span":1793591689400000,"total_duration":1000,
+			 "spans":1,"entry_operation":"HTTP GET","entry_service":"vnet-bff","services":1}
+		],"total":1}`))
+	}))
+
+	resp, err := ds.QueryData(context.Background(), queryRequest(t, map[string]any{
+		"queryType":     "traces",
+		"queryMode":     "sql",
+		"format":        "auto",
+		"traceMode":     "search",
+		"table":         "prd",
+		"rawSql":        `SELECT * FROM "dev" LIMIT 100`,
+		"serviceName":   "",
+		"operationName": "",
+	}))
+	if err != nil {
+		t.Fatalf("QueryData: %v", err)
+	}
+	if e := resp.Responses["A"].Error; e != nil {
+		t.Fatalf("query error: %v", e)
+	}
+	if len(resp.Responses["A"].Frames) == 0 {
+		t.Fatal("no frames: the query fell through to the plain SQL path")
+	}
+	// The trace handler builds its own SQL against the selected stream, ignoring
+	// the stale statement.
+	if !strings.Contains(gotSQL, `FROM "prd"`) || !strings.Contains(gotSQL, "GROUP BY trace_id") {
+		t.Errorf("trace query was not used; sql = %q", gotSQL)
+	}
+	if strings.Contains(gotSQL, `"dev"`) {
+		t.Errorf("the leftover rawSql leaked into the query: %q", gotSQL)
+	}
+}
