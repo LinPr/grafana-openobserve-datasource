@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -131,7 +132,7 @@ func (d *Datasource) runTraceQuery(ctx context.Context, q backend.DataQuery, mod
 	case openobserve.TraceModeGraph:
 		frames = buildServiceGraphFrames(rs)
 	case openobserve.TraceModeSearch:
-		frames = buildTraceListFrames(rs, sql, since.Location())
+		frames = buildTraceListFrames(rs, sql, since.Location(), d.settings.URL, d.client.Organization())
 	default:
 		if len(rs.Rows) == 0 {
 			return backend.ErrDataResponseWithSource(backend.StatusBadRequest, backend.ErrorSourceDownstream,
@@ -192,7 +193,7 @@ func parseDurationUS(raw string) (int64, error) {
 // trace list behaves the same way here: traceID / traceName / startTime /
 // duration, with startTime in milliseconds and duration in microseconds. A
 // trace name is "service: operation", which is what Jaeger shows in its list.
-func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *time.Location) data.Frames {
+func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *time.Location, baseURL, org string) data.Frames {
 	if loc == nil {
 		loc = time.UTC
 	}
@@ -229,8 +230,43 @@ func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *
 		PreferredVisualization: data.VisTypeTable,
 		ExecutedQueryString:    executedQuery,
 	}
+
+	// Make the trace id clickable so a trace can be opened without copying the
+	// id into the TraceID field by hand.
+	if len(traceID) > 0 {
+		frame.Fields[0].Config = &data.FieldConfig{
+			Links: traceIDLinks(baseURL, org, traceID),
+		}
+	}
 	return data.Frames{frame}
 }
+
+// traceIDLinks builds one data link per row that opens the trace in
+// OpenObserve's own trace details page.
+//
+// Grafana data links carry a single URL template, so the per-trace id is
+// interpolated from the field value rather than baked in. The target points at
+// OpenObserve because a data link cannot change this datasource's query mode;
+// the same id can still be pasted into the TraceID tab.
+func traceIDLinks(baseURL, org string, ids []string) []data.DataLink {
+	base := strings.TrimRight(baseURL, "/")
+	if base == "" || len(ids) == 0 {
+		return nil
+	}
+	if org == "" {
+		org = "default"
+	}
+	url := fmt.Sprintf("%s/web/traces/trace-details?org_identifier=%s&trace_id=${__value.raw}",
+		base, orgQueryEscape(org))
+	return []data.DataLink{{
+		Title:       "Open trace in OpenObserve",
+		URL:         url,
+		TargetBlank: true,
+	}}
+}
+
+// orgQueryEscape percent-encodes an organization for a query parameter.
+func orgQueryEscape(org string) string { return url.QueryEscape(org) }
 
 // buildServiceGraphFrames renders the service dependency graph in the shape
 // Grafana's node graph panel consumes.

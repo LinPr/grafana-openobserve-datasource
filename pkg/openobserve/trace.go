@@ -120,26 +120,46 @@ func BuildTraceByIDSQL(q TraceQuery, defaultLimit int64) string {
 // OpenObserve has no dedicated dependency API, so the graph is derived from the
 // spans: for every span with a parent, pair the parent's service with the
 // child's service and count the calls between them.
+//
+// Which column names a "service" matters here. OTel's `service_name` is the
+// *emitting* process, so a client span that calls another system still reports
+// the caller's name and every edge collapses into a self-loop. OpenObserve
+// derives `infer_service_name` from the peer/target for exactly this purpose,
+// and its own trace-details graph uses it. The COALESCE keeps traces that lack
+// the inferred column (older data or other exporters) working.
 func BuildGraphSQL(q TraceQuery, defaultLimit int64) string {
 	if q.Stream == "" {
 		return ""
 	}
 	stream := alwaysQuote(q.Stream)
 	var sb strings.Builder
-	sb.WriteString(`SELECT parent.service_name AS parent_service,
-       child.service_name AS child_service,
+	sb.WriteString(`SELECT parent.parent_service AS parent_service,
+       child.child_service AS child_service,
        count(*) AS calls,
        avg(child.duration) AS avg_duration_us
-FROM `)
+FROM (SELECT span_id, duration, reference_parent_span_id AS parent_span, `)
+	sb.WriteString(serviceExpr("child"))
+	sb.WriteString(` AS child_service FROM `)
 	sb.WriteString(stream)
-	sb.WriteString(` AS child
-JOIN `)
+	sb.WriteString(`) AS child
+JOIN (SELECT span_id, `)
+	sb.WriteString(serviceExpr("parent"))
+	sb.WriteString(` AS parent_service FROM `)
 	sb.WriteString(stream)
-	sb.WriteString(` AS parent ON child.reference_parent_span_id = parent.span_id AND child.span_id <> parent.span_id`)
+	sb.WriteString(`) AS parent ON child.parent_span = parent.span_id`)
 	writeGraphWhere(&sb, q)
 	sb.WriteString(` GROUP BY parent_service, child_service ORDER BY calls DESC`)
 	sb.WriteString(fmt.Sprintf(` LIMIT %d`, graphLimit(q.Limit, defaultLimit)))
 	return sb.String()
+}
+
+// serviceExpr picks the column that names the callee.
+//
+// `infer_service_name` is OpenObserve's own inference (peer address, URL host);
+// `service_name` is the OTel fallback. Always-quoted so a dotted value or a
+// missing column does not change how the SQL parses.
+func serviceExpr(string) string {
+	return `COALESCE(NULLIF(infer_service_name, ''), service_name)`
 }
 
 // writeTraceWhere appends the WHERE clause shared by the search query.
@@ -170,8 +190,8 @@ func writeGraphWhere(sb *strings.Builder, q TraceQuery) {
 	// A span whose parent belongs to the same service is an internal call, not
 	// a service dependency; drawing it as an edge would only produce self-loops.
 	conds := []string{
-		"child.reference_parent_span_id IS NOT NULL",
-		"child.service_name <> parent.service_name",
+		"child.parent_span IS NOT NULL",
+		"child.child_service <> parent.parent_service",
 	}
 	if s := strings.TrimSpace(q.ServiceName); s != "" && s != "All" {
 		conds = append(conds, "child.service_name = "+sqlString(s))

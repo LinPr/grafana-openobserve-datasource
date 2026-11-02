@@ -258,8 +258,8 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
 
       {mode === 'graph' && !error && (
         <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
-          Rows are caller → callee pairs derived from span parent/child links. Select the table and add a Node graph
-          panel to draw it.
+          Caller → callee edges derived from span parent/child links, drawn as a node graph. Services come from
+          OpenObserve&apos;s inferred service name, so client spans attribute to the system they call.
         </div>
       )}
     </div>

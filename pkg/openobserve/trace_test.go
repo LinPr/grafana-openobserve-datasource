@@ -85,16 +85,30 @@ func TestBuildTraceByIDSQL(t *testing.T) {
 func TestBuildGraphSQL(t *testing.T) {
 	sql := openobserve.BuildGraphSQL(openobserve.TraceQuery{Stream: "prd"}, 500)
 	for _, want := range []string{
-		`FROM "prd" AS child`,
-		`JOIN "prd" AS parent`,
-		`child.reference_parent_span_id = parent.span_id`,
-		`child.span_id <> parent.span_id`,
-		`child.service_name <> parent.service_name`,
+		`FROM (SELECT span_id`,
+		`FROM "prd") AS child`,
+		`JOIN (SELECT span_id`,
+		`ON child.parent_span = parent.span_id`,
 		`GROUP BY parent_service, child_service`,
 		`ORDER BY calls DESC`,
 	} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("graph sql missing %q:\n%s", want, sql)
+		}
+	}
+
+	// The callee must come from OpenObserve's inferred service, otherwise a
+	// client span reports its own service and every edge becomes a self-loop.
+	if !strings.Contains(sql, "COALESCE(NULLIF(infer_service_name, ''), service_name)") {
+		t.Errorf("graph sql does not prefer infer_service_name:\n%s", sql)
+	}
+	// Self-loops and parentless spans are excluded by the outer filter.
+	for _, want := range []string{
+		"child.parent_span IS NOT NULL",
+		"child.child_service <> parent.parent_service",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("graph sql missing the %q filter:\n%s", want, sql)
 		}
 	}
 }

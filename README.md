@@ -77,7 +77,8 @@ The trace editor mirrors Jaeger's three modes and the backend builds the SQL for
 each one.
 
 **Search** lists the traces that match the filters (service, operation, tags,
-min/max duration). The columns match what Grafana's Jaeger plugin returns:
+min/max duration). The columns match what Grafana's Jaeger plugin returns, and
+the trace id is a link that opens the trace directly:
 
 ![Trace search](doc/screenshot/trace_search.png)
 
@@ -87,8 +88,9 @@ native waterfall with real parent/child nesting:
 ![Trace waterfall](doc/screenshot/trace_waterfall.png)
 
 **Graph** derives service-to-service call counts from the span parent links and
-returns them as a node graph. A stream whose spans are all intra-service
-correctly produces no edges:
+renders them as a Grafana node graph. The callee is taken from OpenObserve's
+inferred service name, so a client span attributes to the system it calls rather
+than to the caller:
 
 ![Trace graph](doc/screenshot/trace_graph.png)
 

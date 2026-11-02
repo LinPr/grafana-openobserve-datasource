@@ -619,3 +619,38 @@ func TestQueryDataTraceIgnoresLeftoverRawSql(t *testing.T) {
 		t.Errorf("the leftover rawSql leaked into the query: %q", gotSQL)
 	}
 }
+
+func TestTraceListLinksOpenTheTrace(t *testing.T) {
+	ds := newTestDatasource(t, http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		_, _ = rw.Write([]byte(`{"hits":[
+			{"trace_id":"aaa","first_span":1793591689400000,"total_duration":1000,
+			 "spans":1,"entry_operation":"GET /","entry_service":"vnet-bff","services":1}
+		],"total":1}`))
+	}))
+
+	resp, err := ds.QueryData(context.Background(), queryRequest(t, map[string]any{
+		"queryType": "traces", "traceMode": "search", "table": "prd",
+	}))
+	if err != nil {
+		t.Fatalf("QueryData: %v", err)
+	}
+	frame := resp.Responses["A"].Frames[0]
+
+	// The id column must be clickable: opening a trace by copying its id into
+	// the TraceID field is exactly the friction this removes.
+	cfg := frame.Fields[0].Config
+	if cfg == nil || len(cfg.Links) == 0 {
+		t.Fatal("traceID column has no data links")
+	}
+	link := cfg.Links[0]
+	if !strings.Contains(link.URL, "/web/traces/trace-details") {
+		t.Errorf("link = %q, want the OpenObserve trace details page", link.URL)
+	}
+	// The id is interpolated per row, not baked into the template.
+	if !strings.Contains(link.URL, "${__value.raw}") {
+		t.Errorf("link = %q, want a per-row ${__value.raw} placeholder", link.URL)
+	}
+	if !strings.Contains(link.URL, "org_identifier=default") {
+		t.Errorf("link = %q, want the organization", link.URL)
+	}
+}
