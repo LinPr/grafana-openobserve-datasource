@@ -3,7 +3,6 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -132,7 +131,7 @@ func (d *Datasource) runTraceQuery(ctx context.Context, q backend.DataQuery, mod
 	case openobserve.TraceModeGraph:
 		frames = buildServiceGraphFrames(rs)
 	case openobserve.TraceModeSearch:
-		frames = buildTraceListFrames(rs, sql, since.Location(), d.settings.URL, d.client.Organization())
+		frames = buildTraceListFrames(rs, sql, since.Location(), d.datasourceUID(), stream)
 	default:
 		if len(rs.Rows) == 0 {
 			return backend.ErrDataResponseWithSource(backend.StatusBadRequest, backend.ErrorSourceDownstream,
@@ -193,7 +192,7 @@ func parseDurationUS(raw string) (int64, error) {
 // trace list behaves the same way here: traceID / traceName / startTime /
 // duration, with startTime in milliseconds and duration in microseconds. A
 // trace name is "service: operation", which is what Jaeger shows in its list.
-func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *time.Location, baseURL, org string) data.Frames {
+func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *time.Location, datasourceUID, stream string) data.Frames {
 	if loc == nil {
 		loc = time.UTC
 	}
@@ -235,7 +234,7 @@ func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *
 	// id into the TraceID field by hand.
 	if len(traceID) > 0 {
 		frame.Fields[0].Config = &data.FieldConfig{
-			Links: traceIDLinks(baseURL, org, traceID),
+			Links: traceIDLinks(datasourceUID, stream, traceID),
 		}
 	}
 	return data.Frames{frame}
@@ -248,25 +247,37 @@ func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *
 // interpolated from the field value rather than baked in. The target points at
 // OpenObserve because a data link cannot change this datasource's query mode;
 // the same id can still be pasted into the TraceID tab.
-func traceIDLinks(baseURL, org string, ids []string) []data.DataLink {
-	base := strings.TrimRight(baseURL, "/")
-	if base == "" || len(ids) == 0 {
+func traceIDLinks(datasourceUID, stream string, ids []string) []data.DataLink {
+	if len(ids) == 0 {
 		return nil
 	}
-	if org == "" {
-		org = "default"
+	// An internal link opens the id inside Grafana's own Explore rather than
+	// sending the user to OpenObserve's web UI. The query mirrors what the
+	// TraceID tab produces, so clicking a row lands on the trace view with the
+	// waterfall already rendered.
+	query := map[string]any{
+		"refId":      "A",
+		"datasource": map[string]any{"type": "grafana-openobserve-datasource", "uid": datasourceUID},
+		"queryType":  "traces",
+		"queryMode":  "sql",
+		"format":     "auto",
+		"traceMode":  "traceId",
+		"table":      stream,
+		// Grafana substitutes the field value of the clicked row here.
+		"traceId":   "${__value.raw}",
+		"enableSSE": true,
+		"useCache":  true,
 	}
-	url := fmt.Sprintf("%s/web/traces/trace-details?org_identifier=%s&trace_id=${__value.raw}",
-		base, orgQueryEscape(org))
 	return []data.DataLink{{
-		Title:       "Open trace in OpenObserve",
-		URL:         url,
-		TargetBlank: true,
+		Title: "View trace",
+		Internal: &data.InternalDataLink{
+			DatasourceUID: datasourceUID,
+			Query:         query,
+			// Without a time range the target Explore pane keeps the current one,
+			// which is what the user is already looking at.
+		},
 	}}
 }
-
-// orgQueryEscape percent-encodes an organization for a query parameter.
-func orgQueryEscape(org string) string { return url.QueryEscape(org) }
 
 // buildServiceGraphFrames renders the service dependency graph in the shape
 // Grafana's node graph panel consumes.

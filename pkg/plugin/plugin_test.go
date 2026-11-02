@@ -28,6 +28,7 @@ func newTestDatasource(t *testing.T, handler http.Handler) *Datasource {
 		t.Fatal(err)
 	}
 	ds, err := NewDatasource(context.Background(), backend.DataSourceInstanceSettings{
+		UID:      "test-ds-uid",
 		URL:      srv.URL,
 		User:     "user",
 		JSONData: jsonData,
@@ -620,7 +621,7 @@ func TestQueryDataTraceIgnoresLeftoverRawSql(t *testing.T) {
 	}
 }
 
-func TestTraceListLinksOpenTheTrace(t *testing.T) {
+func TestTraceListLinksOpenTheTraceInsideGrafana(t *testing.T) {
 	ds := newTestDatasource(t, http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
 		_, _ = rw.Write([]byte(`{"hits":[
 			{"trace_id":"aaa","first_span":1793591689400000,"total_duration":1000,
@@ -643,14 +644,32 @@ func TestTraceListLinksOpenTheTrace(t *testing.T) {
 		t.Fatal("traceID column has no data links")
 	}
 	link := cfg.Links[0]
-	if !strings.Contains(link.URL, "/web/traces/trace-details") {
-		t.Errorf("link = %q, want the OpenObserve trace details page", link.URL)
+
+	// It has to be an *internal* link: an external URL sent the user to
+	// OpenObserve's own web UI, which is not what "view this trace" should do.
+	if link.Internal == nil {
+		t.Fatalf("link is not internal: %+v", link)
 	}
-	// The id is interpolated per row, not baked into the template.
-	if !strings.Contains(link.URL, "${__value.raw}") {
-		t.Errorf("link = %q, want a per-row ${__value.raw} placeholder", link.URL)
+	if link.Internal.DatasourceUID == "" {
+		t.Error("internal link has no datasource uid")
 	}
-	if !strings.Contains(link.URL, "org_identifier=default") {
-		t.Errorf("link = %q, want the organization", link.URL)
+	query, ok := link.Internal.Query.(map[string]any)
+	if !ok {
+		t.Fatalf("internal query type = %T, want a map", link.Internal.Query)
+	}
+	// The target must reproduce the TraceID tab, so the click lands on the
+	// waterfall rather than on another trace list.
+	if query["traceMode"] != "traceId" {
+		t.Errorf("traceMode = %v, want traceId", query["traceMode"])
+	}
+	if query["queryType"] != "traces" {
+		t.Errorf("queryType = %v, want traces", query["queryType"])
+	}
+	if query["table"] != "prd" {
+		t.Errorf("table = %v, want prd", query["table"])
+	}
+	// The id is interpolated per row, not baked in.
+	if query["traceId"] != "${__value.raw}" {
+		t.Errorf("traceId = %v, want the ${__value.raw} placeholder", query["traceId"])
 	}
 }

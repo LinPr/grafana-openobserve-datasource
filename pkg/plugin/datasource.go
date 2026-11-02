@@ -27,6 +27,10 @@ type Datasource struct {
 	settings *models.PluginSettings
 	client   *openobserve.Client
 
+	// uid is the Grafana UID of this datasource instance, needed to build
+	// internal data links that point back at it.
+	uid string
+
 	queryBuilder *openobserve.QueryBuilder
 	builder      *openobserve.FrameBuilder
 
@@ -56,6 +60,7 @@ func NewDatasource(ctx context.Context, req backend.DataSourceInstanceSettings) 
 	ds := &Datasource{
 		settings:     settings,
 		client:       client,
+		uid:          req.UID,
 		queryBuilder: openobserve.NewQueryBuilder(),
 		builder:      openobserve.NewFrameBuilder(),
 	}
@@ -166,6 +171,9 @@ func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRe
 }
 
 // CallResource serves the plugin's HTTP resources.
+// datasourceUID returns the Grafana UID of this instance.
+func (d *Datasource) datasourceUID() string { return d.uid }
+
 func (d *Datasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
 	return d.resourceHandler.CallResource(ctx, req, sender)
 }

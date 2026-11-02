@@ -78,7 +78,7 @@ each one.
 
 **Search** lists the traces that match the filters (service, operation, tags,
 min/max duration). The columns match what Grafana's Jaeger plugin returns, and
-the trace id is a link that opens the trace directly:
+clicking a trace id opens that trace inside Grafana:
 
 ![Trace search](doc/screenshot/trace_search.png)
 
