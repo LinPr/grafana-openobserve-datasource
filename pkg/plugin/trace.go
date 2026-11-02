@@ -200,8 +200,8 @@ func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *
 
 	traceID := make([]string, 0, len(summaries))
 	traceName := make([]string, 0, len(summaries))
-	startMS := make([]int64, 0, len(summaries))
-	durationUS := make([]float64, 0, len(summaries))
+	startTime := make([]*time.Time, 0, len(summaries))
+	duration := make([]float64, 0, len(summaries))
 
 	for _, s := range summaries {
 		name := s.OperationName
@@ -212,41 +212,38 @@ func buildTraceListFrames(rs *openobserve.ResultSet, executedQuery string, loc *
 				name = s.ServiceName + ": " + name
 			}
 		}
+		ts := time.UnixMicro(s.StartTimeUS).In(loc)
 		traceID = append(traceID, s.TraceID)
 		traceName = append(traceName, name)
-		// Jaeger reports startTime in milliseconds and duration in microseconds.
-		startMS = append(startMS, s.StartTimeUS/1000)
-		durationUS = append(durationUS, float64(s.DurationUS))
+		// A real time field and a milliseconds field let Grafana format both
+		// as a timestamp and a readable duration instead of raw numbers.
+		startTime = append(startTime, &ts)
+		duration = append(duration, float64(s.DurationUS)/1000)
+	}
+
+	startField := data.NewField("startTime", nil, startTime)
+	durationField := data.NewField("duration", nil, duration)
+	// Unit "ms" is what makes Grafana render "459 ms" rather than "459".
+	durationField.Config = &data.FieldConfig{Unit: "ms"}
+
+	traceIDField := data.NewField("traceID", nil, traceID)
+	if len(traceID) > 0 {
+		traceIDField.Config = &data.FieldConfig{Links: traceIDLinks(datasourceUID, stream, traceID)}
 	}
 
 	frame := data.NewFrame("traces",
-		data.NewField("traceID", nil, traceID),
+		traceIDField,
 		data.NewField("traceName", nil, traceName),
-		data.NewField("startTime", nil, startMS),
-		data.NewField("duration", nil, durationUS),
+		startField,
+		durationField,
 	)
 	frame.Meta = &data.FrameMeta{
 		PreferredVisualization: data.VisTypeTable,
 		ExecutedQueryString:    executedQuery,
 	}
-
-	// Make the trace id clickable so a trace can be opened without copying the
-	// id into the TraceID field by hand.
-	if len(traceID) > 0 {
-		frame.Fields[0].Config = &data.FieldConfig{
-			Links: traceIDLinks(datasourceUID, stream, traceID),
-		}
-	}
 	return data.Frames{frame}
 }
 
-// traceIDLinks builds one data link per row that opens the trace in
-// OpenObserve's own trace details page.
-//
-// Grafana data links carry a single URL template, so the per-trace id is
-// interpolated from the field value rather than baked in. The target points at
-// OpenObserve because a data link cannot change this datasource's query mode;
-// the same id can still be pasted into the TraceID tab.
 func traceIDLinks(datasourceUID, stream string, ids []string) []data.DataLink {
 	if len(ids) == 0 {
 		return nil

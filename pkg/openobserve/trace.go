@@ -194,7 +194,11 @@ func writeGraphWhere(sb *strings.Builder, q TraceQuery) {
 		"child.child_service <> parent.parent_service",
 	}
 	if s := strings.TrimSpace(q.ServiceName); s != "" && s != "All" {
-		conds = append(conds, "child.service_name = "+sqlString(s))
+		// A service filter on a dependency graph means "edges touching this
+		// service", not "edges where it is the callee": filtering on the callee
+		// only would hide every call the service makes outward.
+		quoted := sqlString(s)
+		conds = append(conds, fmt.Sprintf("(child.child_service = %[1]s OR parent.parent_service = %[1]s)", quoted))
 	}
 	writeWhere(sb, conds)
 }

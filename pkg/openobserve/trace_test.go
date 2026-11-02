@@ -113,6 +113,20 @@ func TestBuildGraphSQL(t *testing.T) {
 	}
 }
 
+// A service filter on the graph must reference the subquery's output columns.
+// Using the raw `child.service_name` failed with
+// "unknown field 'child'" because that alias only exposes child_service.
+func TestBuildGraphSQLServiceFilterUsesProjectedColumn(t *testing.T) {
+	sql := openobserve.BuildGraphSQL(openobserve.TraceQuery{Stream: "prd", ServiceName: "vnet-bff"}, 500)
+	if strings.Contains(sql, "child.service_name") {
+		t.Errorf("graph sql filters on a column the subquery does not expose:\n%s", sql)
+	}
+	// A service filter means "edges touching this service", in either direction.
+	if !strings.Contains(sql, "(child.child_service = 'vnet-bff' OR parent.parent_service = 'vnet-bff')") {
+		t.Errorf("graph sql does not filter both ends of the edge:\n%s", sql)
+	}
+}
+
 func TestTagCondition(t *testing.T) {
 	tests := map[string]string{
 		"error=true":       `"error" = 'true'`,

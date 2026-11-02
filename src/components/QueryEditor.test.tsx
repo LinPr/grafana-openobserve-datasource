@@ -235,14 +235,31 @@ describe('QueryEditorSQL', () => {
     await waitFor(() => expect(lastChange(onChange).table).toBe('alerta'));
   });
 
-  it('keeps the SQL and the table in sync with the format picker', async () => {
-    const { onChange, onRunQuery } = renderEditor({ query: { format: 'auto' } });
-    await waitFor(() => expect(screen.getByTestId('query-editor-format')).toBeInTheDocument());
+  it('no longer offers a Format picker', () => {
+    // The backend infers the frame shape from the stream type and the query, so
+    // a separate Format switch could only contradict it.
+    renderEditor({ query: { queryType: 'logs' } });
+    expect(screen.queryByTestId('query-editor-format')).not.toBeInTheDocument();
+  });
 
-    fireEvent.change(screen.getByTestId('query-editor-format'), { target: { value: 'trace' } });
+  it('mirrors the Limit field into the SQL and back', async () => {
+    const { onChange, view } = renderEditor({
+      query: { queryType: 'logs', rawSql: 'SELECT * FROM "x" LIMIT 10', size: 10 },
+    });
+    const limitInput = view.container.querySelector<HTMLInputElement>('#query-editor-limit')!;
 
-    expect(lastChange(onChange).format).toBe('trace');
-    expect(onRunQuery).toHaveBeenCalled();
+    // Typing a limit rewrites the statement's LIMIT.
+    fireEvent.change(limitInput, { target: { value: '42' } });
+    let updated = lastChange(onChange);
+    expect(updated.size).toBe(42);
+    expect(updated.rawSql).toBe('SELECT * FROM "x" LIMIT 42');
+
+    // ... and a LIMIT typed into the editor updates the field.
+    fireEvent.change(screen.getByLabelText('code-sql'), {
+      target: { value: 'SELECT * FROM "x" LIMIT 7' },
+    });
+    updated = lastChange(onChange);
+    expect(updated.size).toBe(7);
   });
 
   it('sends the limit as a number', async () => {
@@ -396,10 +413,12 @@ describe('QueryEditorSQL / stale prop handling', () => {
   });
 
   it('applies changes in sequence without dropping the previous one', async () => {
-    const { onChange } = renderEditor({ query: { queryType: 'logs', format: 'auto' } });
+    const { onChange, view } = renderEditor({ query: { queryType: 'logs', size: 0 } });
 
-    fireEvent.change(screen.getByTestId('query-editor-format'), { target: { value: 'trace' } });
-    await waitFor(() => expect(lastChange(onChange).format).toBe('trace'));
+    fireEvent.change(view.container.querySelector<HTMLInputElement>('#query-editor-limit')!, {
+      target: { value: '33' },
+    });
+    await waitFor(() => expect(lastChange(onChange).size).toBe(33));
 
     await waitFor(() =>
       expect(screen.getByTestId('query-editor-stream').querySelectorAll('option').length).toBeGreaterThan(1)
@@ -407,8 +426,8 @@ describe('QueryEditorSQL / stale prop handling', () => {
     fireEvent.change(screen.getByTestId('query-editor-stream'), { target: { value: 'vnet_bff_dev' } });
 
     const updated = lastChange(onChange);
-    // The format chosen a moment earlier must survive the stream change.
-    expect(updated.format).toBe('trace');
+    // The limit chosen a moment earlier must survive the stream change.
+    expect(updated.size).toBe(33);
     expect(updated.table).toBe('vnet_bff_dev');
   });
 });

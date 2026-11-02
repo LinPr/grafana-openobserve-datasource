@@ -24,13 +24,11 @@ import { OpenObserveDataSource } from '../datasource';
 import {
   DEFAULT_QUERY,
   DEFAULT_SQL,
-  FORMAT_OPTIONS,
   OpenObserveOptions,
   OpenObserveQuery,
-  ResultFormat,
   StreamType,
 } from '../types';
-import { completionFetchFields, extractFirstTable, retargetStream } from '../utils/completion';
+import { completionFetchFields, extractFirstTable, extractLimit, retargetStream, setSqlLimit } from '../utils/completion';
 import { TraceQueryEditor } from './TraceQueryEditor';
 
 type Props = QueryEditorProps<OpenObserveDataSource, OpenObserveQuery, OpenObserveOptions>;
@@ -148,6 +146,10 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
           const merged = { ...latestQuery.current, table, rawSql: retargetStream(latestQuery.current.rawSql ?? '', table) };
           latestQuery.current = merged;
           onChange(merged);
+          // The type switch itself cannot run the query (the stream is only
+          // valid once this list has loaded), so run it here instead: switching
+          // type must refresh the panel rather than leave stale results.
+          onRunQuery();
         }
       })
       .catch(error => {
@@ -157,6 +159,7 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         pendingAutoSelect.current = false;
         setStreams([]);
         setStreamsError(error?.data?.error ?? error?.message ?? String(error));
+        onRunQuery();
       });
     return () => {
       cancelled = true;
@@ -216,10 +219,6 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
     patch({ queryMode: option.value ?? 'sql' }, true);
   };
 
-  const onFormatChange = (option: SelectableValue<ResultFormat>) => {
-    patch({ format: option.value ?? 'auto' }, true);
-  };
-
   const onStreamChange = (option: SelectableValue<string>) => {
     const table = option.value;
     if (!table) {
@@ -232,7 +231,12 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
   };
 
   const onSqlChange = (value: string) => {
-    patch({ rawSql: value, table: extractFirstTable(value) ?? queryWithDefaults.table });
+    // ... and the other way round: a LIMIT typed into the editor updates the field.
+    patch({
+      rawSql: value,
+      table: extractFirstTable(value) ?? queryWithDefaults.table,
+      size: extractLimit(value),
+    });
   };
 
   const onExprChange = (value: string) => {
@@ -241,7 +245,10 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
 
   const onSizeChange = (event: React.FormEvent<HTMLInputElement>) => {
     const next = Number(event.currentTarget.value);
-    patch({ size: Number.isFinite(next) ? next : 0 });
+    const limit = Number.isFinite(next) ? next : 0;
+    // Keep the SQL in step with the field, so the panel and the statement never
+    // disagree about how many rows to fetch.
+    patch({ size: limit, rawSql: setSqlLimit(queryWithDefaults.rawSql ?? '', limit) });
   };
 
   const onToggleSSE = (event: React.FormEvent<HTMLInputElement>) => {
@@ -307,20 +314,6 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
             onChange={onModeChange}
           />
         </InlineField>
-
-        {/* Traces pick their frame shape from the query type, so Format would
-            only be a second, conflicting switch. */}
-        {streamType !== 'traces' && (
-          <InlineField label="Format" tooltip="How the response is shaped for the panel">
-            <Select<ResultFormat>
-              inputId="query-editor-format"
-              width={18}
-              value={queryWithDefaults.format ?? 'auto'}
-              options={FORMAT_OPTIONS as Array<SelectableValue<ResultFormat>>}
-              onChange={onFormatChange}
-            />
-          </InlineField>
-        )}
 
         {streamType !== 'traces' && (
         <InlineField label="Stream" tooltip="The stream the query selects from" grow>

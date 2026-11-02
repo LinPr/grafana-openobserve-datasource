@@ -191,3 +191,30 @@ export async function completionFetchMetrics(datasource: OpenObserveDataSource):
     return [];
   }
 }
+
+/** Reads the top-level LIMIT value of a statement, 0 when absent. */
+export function extractLimit(sql: string): number {
+  const match = /\blimit\s+(\d+)\s*;?\s*$/i.exec(sql.trim());
+  return match ? Number(match[1]) : 0;
+}
+
+/**
+ * Rewrites the top-level LIMIT of a statement, keeping everything else.
+ *
+ * The Limit field and the SQL should never disagree: editing one has to move
+ * the other, otherwise the panel silently honours whichever the backend happens
+ * to prefer. A limit of 0 removes the clause.
+ */
+export function setSqlLimit(sql: string, limit: number): string {
+  const trimmed = sql.trimEnd();
+  const hasTrailingSemicolon = trimmed.endsWith(';');
+  const body = hasTrailingSemicolon ? trimmed.slice(0, -1).trimEnd() : trimmed;
+  const existing = /\blimit\s+\d+\s*$/i;
+  const withoutLimit = existing.test(body) ? body.replace(existing, '').trimEnd() : body;
+
+  if (limit <= 0) {
+    return hasTrailingSemicolon ? `${withoutLimit};` : withoutLimit;
+  }
+  const withLimit = `${withoutLimit} LIMIT ${Math.floor(limit)}`;
+  return hasTrailingSemicolon ? `${withLimit};` : withLimit;
+}
