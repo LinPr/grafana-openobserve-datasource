@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.3.0
+
+### Changed
+
+- **Editor layout follows the ClickHouse and Prometheus editors.** Stream type,
+  query mode and editor mode on the first row, the stream on its own row, then
+  a Raw/Aggregate switch. The limit sits last, after the inputs that shape the
+  query. The builder shows a read-only preview of the statement instead of an
+  editor-shaped box.
+- The trace editor is laid out like Jaeger's: query type and trace stream
+  first, then one row of filters per query type.
+- **SSE and cache are always on and no longer have switches.** They are
+  transport details; the toggles only invited people to disable streaming and
+  then wonder why results lagged.
+- The default row limit is 100, matching between the editor and the backend
+  (it was 0 in the editor and 200 on the server).
+
+### Fixed
+
+- Editing the limit in Builder mode flipped the editor to Code: the handler
+  wrote the limit into `rawSql`, which made the query look hand-written.
+
 ## 2.2.0
 
 ### Added

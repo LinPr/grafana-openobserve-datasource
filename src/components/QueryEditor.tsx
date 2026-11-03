@@ -13,7 +13,6 @@ import {
   CodeEditorSuggestionItem,
   CodeEditorSuggestionItemKind,
   InlineField,
-  InlineSwitch,
   Input,
   RadioButtonGroup,
   Select,
@@ -22,6 +21,7 @@ import {
 
 import { OpenObserveDataSource } from '../datasource';
 import {
+  DEFAULT_LIMIT,
   DEFAULT_QUERY,
   DEFAULT_SQL,
   EditorMode,
@@ -290,17 +290,16 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
   const onSizeChange = (event: React.FormEvent<HTMLInputElement>) => {
     const next = Number(event.currentTarget.value);
     const limit = Number.isFinite(next) ? next : 0;
+    if (editorMode === 'builder') {
+      // The builder derives its statement from these fields, so the limit is
+      // just a number here. Writing it into rawSql would look like a code query
+      // and flip the editor out of Builder.
+      patch({ size: limit });
+      return;
+    }
     // Keep the SQL in step with the field, so the panel and the statement never
     // disagree about how many rows to fetch.
     patch({ size: limit, rawSql: setSqlLimit(queryWithDefaults.rawSql ?? '', limit) });
-  };
-
-  const onToggleSSE = (event: React.FormEvent<HTMLInputElement>) => {
-    patch({ enableSSE: event.currentTarget.checked }, true);
-  };
-
-  const onToggleCache = (event: React.FormEvent<HTMLInputElement>) => {
-    patch({ useCache: event.currentTarget.checked }, true);
   };
 
   const getSuggestions = useCallback((): CodeEditorSuggestionItem[] => {
@@ -390,28 +389,16 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         )}
 
         {streamType !== 'traces' && (
-        <InlineField label="Limit" tooltip="Rows fetched. Empty means: use the SQL LIMIT, else the datasource default">
+        <InlineField label="Limit" tooltip="Maximum rows to return">
           <Input
             id="query-editor-limit"
             width={10}
             type="number"
             min={0}
-            value={queryWithDefaults.size ?? 0}
+            value={queryWithDefaults.size ?? DEFAULT_LIMIT}
             onChange={onSizeChange}
           />
         </InlineField>
-        )}
-
-        {streamType !== 'traces' && (
-          <>
-            <InlineField label="SSE" tooltip="Stream the results with the _search_stream endpoint">
-              <InlineSwitch id="query-editor-sse" value={queryWithDefaults.enableSSE ?? true} onChange={onToggleSSE} />
-            </InlineField>
-
-            <InlineField label="Cache" tooltip="Let OpenObserve serve the query from its result cache">
-              <InlineSwitch id="query-editor-cache" value={queryWithDefaults.useCache ?? true} onChange={onToggleCache} />
-            </InlineField>
-          </>
         )}
       </Stack>
 

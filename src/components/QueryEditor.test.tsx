@@ -4,7 +4,7 @@ import { CoreApp } from '@grafana/data';
 
 import { QueryEditorSQL } from './QueryEditor';
 import { OpenObserveDataSource } from '../datasource';
-import { OpenObserveQuery } from '../types';
+import { DEFAULT_QUERY, OpenObserveQuery } from '../types';
 
 // @grafana/ui Select renders a real menu; drive it through a plain <select> so
 // the assertions stay about the editor's behaviour, not about the widget.
@@ -272,25 +272,16 @@ describe('QueryEditorSQL', () => {
     await waitFor(() => expect(lastChange(onChange).size).toBe(250));
   });
 
-  it('toggles SSE and keeps the query runnable', async () => {
-    const { onChange, onRunQuery, view } = renderEditor({ query: { enableSSE: true } });
+  it('keeps SSE and the cache on without offering switches for them', () => {
+    // Both are transport details, on by default. Showing toggles only invited
+    // people to turn off streaming and then wonder why results lagged.
+    const { view } = renderEditor({ query: {} });
+    expect(view.container.querySelector('#query-editor-sse')).toBeNull();
+    expect(view.container.querySelector('#query-editor-cache')).toBeNull();
 
-    const input = view.container.querySelector<HTMLInputElement>('#query-editor-sse');
-    expect(input).not.toBeNull();
-    fireEvent.click(input!);
-
-    expect(lastChange(onChange).enableSSE).toBe(false);
-    expect(onRunQuery).toHaveBeenCalled();
-  });
-
-  it('toggles the result cache', async () => {
-    const { onChange, view } = renderEditor({ query: { useCache: true } });
-
-    const input = view.container.querySelector<HTMLInputElement>('#query-editor-cache');
-    expect(input).not.toBeNull();
-    fireEvent.click(input!);
-
-    expect(lastChange(onChange).useCache).toBe(false);
+    const defaults = DEFAULT_QUERY as OpenObserveQuery;
+    expect(defaults.enableSSE).toBe(true);
+    expect(defaults.useCache).toBe(true);
   });
 
   it('shows a hint when the SQL is still empty', () => {
@@ -335,6 +326,23 @@ describe('QueryEditorSQL / builder and code isolation', () => {
     expect(updated.builderStream).toBe('vnet_bff_dev');
     // The hand-written statement survives untouched.
     expect(updated.rawSql).toBe('SELECT * FROM "mine" WHERE a = 1');
+  });
+
+  it('changing the limit in builder mode does not touch the statement', () => {
+    // Writing the limit into rawSql made the query look hand-written, which
+    // flipped the editor to Code as soon as the field was edited.
+    const { onChange, view } = renderEditor({
+      query: { queryType: 'logs', editorMode: 'builder', builderStream: 'vnet_bff_dev', rawSql: '', size: 100 },
+    });
+    const input = view.container.querySelector<HTMLInputElement>('#query-editor-limit')!;
+
+    fireEvent.change(input, { target: { value: '250' } });
+
+    const updated = lastChange(onChange);
+    expect(updated.size).toBe(250);
+    expect(updated.editorMode).toBe('builder');
+    // No statement was generated into the Code editor.
+    expect(updated.rawSql ?? '').toBe('');
   });
 
   it('keeps builder fields when switching to code and back', () => {

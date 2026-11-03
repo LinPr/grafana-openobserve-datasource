@@ -20,8 +20,10 @@ const (
 
 	DefaultOrganization = "default"
 	DefaultTimeout      = 60 * time.Second
-	DefaultLimit        = 200
-	DefaultMaxLimit     = 10000
+	// DefaultLimit matches the editor's default so a query without an explicit
+	// limit behaves the same whether or not the frontend sent one.
+	DefaultLimit    = 100
+	DefaultMaxLimit = 10000
 )
 
 // PluginSettings is the parsed datasource configuration.

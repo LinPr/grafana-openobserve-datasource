@@ -134,9 +134,15 @@ export const DEFAULT_QUERY: Partial<OpenObserveQuery> = {
   queryType: 'logs',
   queryMode: 'sql',
   format: 'auto',
+  // SSE and cache are on by default and have no UI: they are transport
+  // details, not query semantics, and the toggles only invited mistakes.
   enableSSE: true,
   useCache: true,
+  size: 100,
 };
+
+/** Row limit used when a query does not set one. */
+export const DEFAULT_LIMIT = 100;
 
 /** Default SQL shown for a brand new panel. */
 export const DEFAULT_SQL = 'SELECT * FROM "your_stream" LIMIT 100';

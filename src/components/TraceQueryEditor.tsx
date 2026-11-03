@@ -23,6 +23,9 @@ export interface TraceQueryEditorProps {
   onRunQuery: () => void;
 }
 
+/** How many traces a search lists by default. */
+const DEFAULT_TRACE_LIMIT = 100;
+
 const TRACE_MODES: Array<SelectableValue<TraceMode>> = [
   { label: 'Search', value: 'search', description: 'List the traces that match the filters' },
   { label: 'TraceID', value: 'traceId', description: 'Load every span of one trace' },
@@ -119,12 +122,19 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
 
   return (
     <div>
+      {/*
+        Laid out like Jaeger's editor: which trace stream to read and what the
+        query returns come first, then one row per query type. Keeping the
+        filters on their own rows means the labels stay readable instead of
+        wrapping into each other.
+      */}
       <Stack direction="row" gap={1} wrap>
         <InlineField label="Query type" tooltip="What the trace query returns">
           <RadioButtonGroup<TraceMode>
             options={TRACE_MODES}
             value={mode}
             onChange={value => patch({ traceMode: value ?? 'search' }, true)}
+            aria-label="trace-query-type"
           />
         </InlineField>
 
@@ -139,13 +149,15 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
             onChange={option => patch({ table: option.value ?? undefined }, true)}
           />
         </InlineField>
+      </Stack>
 
-        {mode === 'search' && (
-          <>
-            <InlineField label="Service Name">
+      {mode === 'search' && (
+        <>
+          <Stack direction="row" gap={1} wrap>
+            <InlineField label="Service" tooltip="Only traces whose entry span belongs to this service">
               <Select<string>
                 inputId="trace-editor-service"
-                width={22}
+                width={24}
                 isClearable
                 value={query.serviceName ?? ''}
                 options={serviceOptions}
@@ -155,10 +167,10 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
               />
             </InlineField>
 
-            <InlineField label="Operation Name">
+            <InlineField label="Operation" tooltip="Only traces whose entry span has this name">
               <Select<string>
                 inputId="trace-editor-operation"
-                width={24}
+                width={26}
                 isClearable
                 value={query.operationName ?? ''}
                 options={operationOptions}
@@ -167,6 +179,28 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
               />
             </InlineField>
 
+            <InlineField label="Min duration" tooltip='e.g. "1.2s", "100ms", "500us"'>
+              <Input
+                id="trace-editor-min-duration"
+                width={14}
+                placeholder="e.g. 100ms"
+                value={query.minDuration ?? ''}
+                onChange={event => patch({ minDuration: event.currentTarget.value })}
+              />
+            </InlineField>
+
+            <InlineField label="Max duration" tooltip='e.g. "1.2s", "100ms", "500us"'>
+              <Input
+                id="trace-editor-max-duration"
+                width={14}
+                placeholder="e.g. 1.2s"
+                value={query.maxDuration ?? ''}
+                onChange={event => patch({ maxDuration: event.currentTarget.value })}
+              />
+            </InlineField>
+          </Stack>
+
+          <Stack direction="row" gap={1} wrap>
             <InlineField label="Tags" grow tooltip="Space separated key=value filters, e.g. http.status_code=200">
               <Input
                 id="trace-editor-tags"
@@ -183,63 +217,45 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
               />
             </InlineField>
 
-            <InlineField label="Min Duration" tooltip='e.g. "1.2s", "100ms", "500us"'>
-              <Input
-                id="trace-editor-min-duration"
-                width={14}
-                placeholder="e.g. 100ms"
-                value={query.minDuration ?? ''}
-                onChange={event => patch({ minDuration: event.currentTarget.value })}
-              />
-            </InlineField>
-
-            <InlineField label="Max Duration" tooltip='e.g. "1.2s", "100ms", "500us"'>
-              <Input
-                id="trace-editor-max-duration"
-                width={14}
-                placeholder="e.g. 1.2s"
-                value={query.maxDuration ?? ''}
-                onChange={event => patch({ maxDuration: event.currentTarget.value })}
-              />
-            </InlineField>
-
             <InlineField label="Limit" tooltip="How many traces to list">
               <Input
                 id="trace-editor-limit"
-                width={10}
+                width={12}
                 type="number"
                 min={0}
-                value={query.size ?? 0}
+                value={query.size ?? DEFAULT_TRACE_LIMIT}
                 onChange={event => {
                   const next = Number(event.currentTarget.value);
                   patch({ size: Number.isFinite(next) ? next : 0 });
                 }}
               />
             </InlineField>
-          </>
-        )}
+          </Stack>
+        </>
+      )}
 
-        {mode === 'traceId' && (
-          <InlineField label="Trace ID" grow tooltip="Loads every span of this trace">
-            <Input
-              id="trace-editor-trace-id"
-              placeholder="enter a trace id"
-              value={query.traceId ?? ''}
-              onChange={event => patch({ traceId: event.currentTarget.value })}
-              onKeyDown={event => {
-                if (event.key === 'Enter') {
-                  onRunQuery();
-                }
-              }}
-            />
-          </InlineField>
-        )}
+      {mode === 'traceId' && (
+        <InlineField label="Trace ID" grow tooltip="Loads every span of this trace">
+          <Input
+            id="trace-editor-trace-id"
+            placeholder="enter a trace id"
+            value={query.traceId ?? ''}
+            onChange={event => patch({ traceId: event.currentTarget.value })}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                onRunQuery();
+              }
+            }}
+          />
+        </InlineField>
+      )}
 
-        {mode === 'graph' && (
-          <InlineField label="Service Name" tooltip="Restrict the graph to one caller">
+      {mode === 'graph' && (
+        <Stack direction="row" gap={1} wrap>
+          <InlineField label="Service" tooltip="Only edges touching this service, in either direction">
             <Select<string>
               inputId="trace-editor-graph-service"
-              width={22}
+              width={24}
               isClearable
               value={query.serviceName ?? ''}
               options={serviceOptions}
@@ -247,8 +263,8 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
               onChange={option => patch({ serviceName: option.value ?? '' })}
             />
           </InlineField>
-        )}
-      </Stack>
+        </Stack>
+      )}
 
       {error && (
         <div role="alert" style={{ color: 'var(--text-warning)', marginTop: 4 }}>
