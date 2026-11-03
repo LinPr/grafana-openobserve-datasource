@@ -3,7 +3,7 @@
 <div align="center">
 
   ![GitHub](https://img.shields.io/github/license/LinPr/grafana-openobserve-datasource?style=flat-square)
-  ![Grafana](https://img.shields.io/badge/Grafana-10.4%2B-orange?style=flat-square&logo=grafana)
+  ![Grafana](https://img.shields.io/badge/Grafana-10.4%20%E2%80%93%2012.2-orange?style=flat-square&logo=grafana)
   ![OpenObserve](https://img.shields.io/badge/OpenObserve-Supported-blue?style=flat-square)
   ![Go](https://img.shields.io/badge/Go-1.24.6+-00ADD8?style=flat-square&logo=go)
   ![TypeScript](https://img.shields.io/badge/TypeScript-5.5.4+-3178C6?style=flat-square&logo=typescript)
@@ -332,6 +332,22 @@ Then use `$service_name` in a query — the plugin quotes multi-value selections
 correctly, so `WHERE service_name IN ($service_name)` just works.
 
 ---
+
+## ✅ Compatibility
+
+| Grafana | Status |
+| ------- | ------ |
+| 12.2.x | tested (primary target) |
+| 10.4.4 | tested |
+
+Both versions were exercised against the same live OpenObserve instance: the
+health check, log queries, the trace editor (search / trace id / graph) and
+PromQL all return data, with no console or page errors.
+
+Grafana provides `@grafana/ui`, `@grafana/data` and `@grafana/runtime` at
+runtime, so the plugin only uses APIs that exist in the oldest supported
+version. `Combobox`, for example, was added in 12.2 and is deliberately not
+used; the deprecated `Select` is kept instead.
 
 ## 🛠️ Development
 

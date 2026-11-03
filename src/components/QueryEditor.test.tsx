@@ -298,6 +298,58 @@ describe('QueryEditorSQL', () => {
   });
 });
 
+describe('QueryEditorSQL / PromQL seeding', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('seeds the expression when a metric stream is picked in PromQL mode', async () => {
+    // Picking a stream left `expr` empty, so OpenObserve answered
+    // "invalid promql query" for `query=`.
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockResolvedValue(['go_goroutine_count', 'go_memory_used']),
+    });
+    const { onChange } = renderEditor({
+      datasource,
+      query: { queryType: 'metrics', queryMode: 'promql', expr: '', format: 'timeseries' },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('query-editor-stream').querySelectorAll('option').length).toBeGreaterThan(1)
+    );
+
+    fireEvent.change(screen.getByTestId('query-editor-stream'), { target: { value: 'go_goroutine_count' } });
+
+    const updated = lastChange(onChange);
+    expect(updated.table).toBe('go_goroutine_count');
+    expect(updated.expr).toBe('go_goroutine_count');
+  });
+
+  it('keeps an expression the user already wrote', async () => {
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockResolvedValue(['go_goroutine_count']),
+    });
+    const { onChange } = renderEditor({
+      datasource,
+      query: { queryType: 'metrics', queryMode: 'promql', expr: 'rate(go_goroutine_count[5m])' },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('query-editor-stream').querySelectorAll('option').length).toBeGreaterThan(1)
+    );
+
+    fireEvent.change(screen.getByTestId('query-editor-stream'), { target: { value: 'go_goroutine_count' } });
+
+    expect(lastChange(onChange).expr).toBe('rate(go_goroutine_count[5m])');
+  });
+
+  it('seeds the expression when switching from SQL to PromQL', async () => {
+    const { onChange } = renderEditor({
+      query: { queryType: 'metrics', queryMode: 'sql', table: 'go_goroutine_count', expr: '', rawSql: 'SELECT * FROM "go_goroutine_count"' },
+    });
+    fireEvent.change(screen.getByTestId('query-editor-mode'), { target: { value: 'promql' } });
+    const updated = lastChange(onChange);
+    expect(updated.queryMode).toBe('promql');
+    expect(updated.expr).toBe('go_goroutine_count');
+  });
+});
+
 describe('QueryEditorSQL / stream type switch', () => {
   afterEach(() => jest.clearAllMocks());
 

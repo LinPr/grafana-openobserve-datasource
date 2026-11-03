@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.1.1
+
+### Fixed
+
+- Switching a metric query to PromQL left the expression empty, so OpenObserve
+  answered `400 invalid promql query`. Picking a stream now seeds the
+  expression with that metric name, and switching SQL -> PromQL seeds it from
+  the stream already selected. An expression the user wrote is never
+  overwritten.
+
+### Compatibility
+
+- Verified against Grafana 10.4.4 as well as 12.2: the health check, log
+  queries, the trace editor (search / trace id / graph) and PromQL all work,
+  with no console or page errors.
+
 ## 2.1.0
 
 ### Added

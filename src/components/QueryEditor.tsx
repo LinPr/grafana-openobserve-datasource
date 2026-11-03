@@ -216,13 +216,24 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
   };
 
   const onModeChange = (option: SelectableValue<'sql' | 'promql'>) => {
-    patch({ queryMode: option.value ?? 'sql' }, true);
+    const nextMode = option.value ?? 'sql';
+    // Same reasoning as onStreamChange: PromQL needs a metric to be valid, and
+    // the currently picked stream is the obvious candidate.
+    const expr = nextMode === 'promql' && !queryWithDefaults.expr?.trim() ? queryWithDefaults.table : queryWithDefaults.expr;
+    patch({ queryMode: nextMode, expr }, true);
   };
 
   const onStreamChange = (option: SelectableValue<string>) => {
     const table = option.value;
     if (!table) {
       patch({ table: undefined }, true);
+      return;
+    }
+    if (mode === 'promql') {
+      // A PromQL query *is* the metric name, so picking a stream seeds the
+      // expression. Leaving it empty sent `query=` and OpenObserve rejected it
+      // with "invalid promql query".
+      patch({ table, expr: queryWithDefaults.expr?.trim() ? queryWithDefaults.expr : table }, true);
       return;
     }
     // Only the FROM target is rewritten. Everything else in the statement --
