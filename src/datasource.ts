@@ -1,6 +1,8 @@
 import {
   AdHocVariableFilter,
   CoreApp,
+  DataQueryRequest,
+  DataQueryResponse,
   DataSourceGetTagKeysOptions,
   DataSourceGetTagValuesOptions,
   DataSourceInstanceSettings,
@@ -9,6 +11,7 @@ import {
   dateTime,
 } from '@grafana/data';
 import { DataSourceWithBackend } from '@grafana/runtime';
+import { Observable, of } from 'rxjs';
 import {
   DEFAULT_QUERY,
   OpenObserveOptions,
@@ -96,7 +99,24 @@ export class OpenObserveDataSource extends DataSourceWithBackend<OpenObserveQuer
     return queries.map(q => this.applyTemplateVariables(q, scopedVars, filters));
   }
 
+  /**
+   * Runs the queries.
+   *
+   * A deferred query (one that is settling after a stream type switch) is
+   * answered with an empty result instead of being sent: the panel clears,
+   * nothing reaches OpenObserve, and the user is not shown a half-built query's
+   * error. Filtering the target out is not enough -- Grafana keeps the previous
+   * render in that case, which looks like stale data.
+   */
+  query(request: DataQueryRequest<OpenObserveQuery>): Observable<DataQueryResponse> {
+    if (request.targets.some(t => t.deferRun) && request.targets.every(t => t.deferRun)) {
+      return of({ data: [] });
+    }
+    return super.query(request);
+  }
+
   filterQuery(query: OpenObserveQuery): boolean {
+
     // Trace queries carry their parameters in the structured fields and let the
     // backend build the SQL, so they have no rawSql/expr. Filtering them out
     // here dropped every trace query before it was ever sent.

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.2
+
+### Changed
+
+- **Switching stream type clears the panel instead of leaving the previous
+  result on screen.** The type switch drops the statement, which is what makes
+  the old rows go away, and marks the query deferred. The editor asks Grafana
+  to repaint once, the datasource answers that request locally with an empty
+  result, and nothing is sent to OpenObserve. Filtering the target out was not
+  enough: Grafana keeps the previous render in that case, so stale results from
+  the type the user just left stayed visible.
+- The editor mode and row limit survive a type switch; clearing the statement
+  used to flip the editor to Code and reset the limit to 0.
+
 ## 2.3.1
 
 ### Changed

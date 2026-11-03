@@ -46,6 +46,15 @@ export interface OpenObserveQuery {
   /** builder (structured fields) or code (hand-written SQL). */
   editorMode?: EditorMode;
 
+  /**
+   * Set while the editor is settling after a stream type switch.
+   *
+   * The query is dropped by `filterQuery` in that window, so Grafana clears the
+   * panel without sending anything: a query fired mid-switch is half-built and
+   * would come back as an error.
+   */
+  deferRun?: boolean;
+
   /** Builder fields; only read when editorMode is "builder". */
   builderStream?: string;
   builderAggregation?: BuilderAggregation | '';

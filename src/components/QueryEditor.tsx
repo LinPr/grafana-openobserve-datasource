@@ -138,14 +138,30 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
            * can pick another stream from the list.
            */
           const table = names[0];
-          const merged = { ...latestQuery.current, table, rawSql: retargetStream(latestQuery.current.rawSql ?? '', table) };
+          const merged = {
+            ...latestQuery.current,
+            table,
+            // No retargeting: the previous type's statement was cleared on the
+            // switch and must not come back under a stream of another type.
+            rawSql: '',
+            editorMode: latestQuery.current.editorMode ?? 'builder',
+            // The new type's default stream is in place, so the query is
+            // runnable again -- but only a click on Run query should send it.
+            deferRun: false,
+          };
           latestQuery.current = merged;
           onChange(merged);
           // Deliberately no run here. Switching stream type changes which
           // parameters are meaningful, so a query fired at this instant is
           // half-built and typically fails -- the user gets an error banner for
-          // something they did not ask to run. The panel shows the last result
-          // until the user presses Run query.
+          // something they did not ask to run.
+        } else if (pendingAutoSelect.current) {
+          // The new type has no streams to adopt. Nothing is runnable, but the
+          // panel must not keep showing the previous type's results.
+          pendingAutoSelect.current = false;
+          const cleared = { ...latestQuery.current, table: undefined, rawSql: '', deferRun: false };
+          latestQuery.current = cleared;
+          onChange(cleared);
         }
       })
       .catch(error => {
@@ -155,6 +171,10 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         pendingAutoSelect.current = false;
         setStreams([]);
         setStreamsError(error?.data?.error ?? error?.message ?? String(error));
+        // Nothing to adopt, but the panel should still not sit on stale results.
+        const cleared = { ...latestQuery.current, deferRun: false };
+        latestQuery.current = cleared;
+        onChange(cleared);
       });
     return () => {
       cancelled = true;
@@ -205,8 +225,20 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         queryType: nextType,
         // PromQL only exists for metrics in OpenObserve.
         queryMode: nextType === 'metrics' ? queryWithDefaults.queryMode ?? 'sql' : 'sql',
+        // The previous type's statement cannot run against the new type, so it
+        // goes away too. With nothing to run the panel shows "No data" rather
+        // than results belonging to a stream type the user just left.
+        rawSql: '',
+        expr: '',
+        // Pinned so clearing the statement cannot flip the editor to Code: the
+        // mode is derived from "is there a statement", so it has to be explicit.
+        editorMode: editorMode,
+        size: queryWithDefaults.size ?? DEFAULT_LIMIT,
+        deferRun: true,
       },
-      false
+      // Run once with deferRun set: the datasource answers with an empty result
+      // instead of sending anything, which is what actually clears the panel.
+      true
     );
   };
 

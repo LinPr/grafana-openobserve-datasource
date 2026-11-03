@@ -328,15 +328,15 @@ describe('QueryEditorSQL / builder and code isolation', () => {
     expect(updated.rawSql).toBe('SELECT * FROM "mine" WHERE a = 1');
   });
 
-  it('does not run the query when the stream type changes', async () => {
-    // Switching type changes which parameters are meaningful, so a query fired
-    // at that moment is half-built and usually errors. The user asked for a
-    // type, not for a run.
+  it('clears the panel on a type switch without querying the backend', async () => {
+    // Grafana keeps the previous render when a target is filtered out, so the
+    // editor asks for a run -- but the query is marked deferred, and the
+    // datasource answers it locally. Nothing is sent to OpenObserve.
     const datasource = newDatasource({
       listStreams: jest.fn().mockResolvedValue(['vnet_bff_dev']),
       streamHasData: jest.fn().mockResolvedValue(true),
     });
-    const { onRunQuery } = renderEditor({ datasource, query: { queryType: 'logs' } });
+    const { onChange, onRunQuery } = renderEditor({ datasource, query: { queryType: 'logs' } });
     await waitFor(() => expect(screen.getByRole('group', { name: 'stream-type' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
@@ -344,7 +344,34 @@ describe('QueryEditorSQL / builder and code isolation', () => {
     // Give the auto-select effect room to settle before asserting.
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    expect(onRunQuery).not.toHaveBeenCalled();
+    // One run is requested so the panel repaints; the payload carries deferRun
+    // and the datasource short-circuits it.
+    expect(onRunQuery).toHaveBeenCalled();
+    const sent = onChange.mock.calls.map(call => call[0] as OpenObserveQuery);
+    expect(sent.some(q => q.deferRun === true)).toBe(true);
+  });
+
+  it('marks the query as deferred while the type switch settles', async () => {
+    // filterQuery drops a deferred query, which clears the panel: the user sees
+    // "No data" rather than results belonging to the previous stream type.
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockResolvedValue(['vnet_bff_dev']),
+    });
+    const { onChange } = renderEditor({ datasource, query: { queryType: 'logs' } });
+    await waitFor(() => expect(screen.getByRole('group', { name: 'stream-type' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
+    // The first change defers the run; the stream adoption then clears it.
+    const deferred = onChange.mock.calls.map(call => call[0] as OpenObserveQuery).find(q => q.queryType === 'traces');
+    expect(deferred?.deferRun).toBe(true);
+
+    await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('traces'));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const settled = lastChange(onChange);
+    // The flag is cleared once the stream is adopted, so the next Run query
+    // reaches the backend.
+    expect(settled.deferRun).toBe(false);
+    expect(settled.editorMode).toBeDefined();
   });
 
   it('changing the limit in builder mode does not touch the statement', () => {
@@ -433,7 +460,7 @@ describe('QueryEditorSQL / PromQL seeding', () => {
 describe('QueryEditorSQL / stream type switch', () => {
   afterEach(() => jest.clearAllMocks());
 
-  it('selects the first stream of the new type so the query is runnable', async () => {
+  it('selects the first stream of the new type and clears the statement', async () => {
     // Leaving the previous stream in place makes the next run fail, because a
     // log stream does not exist in the traces catalogue.
     const datasource = newDatasource({
@@ -455,10 +482,12 @@ describe('QueryEditorSQL / stream type switch', () => {
     await waitFor(() => expect(lastChange(onChange).table).toBe('prd'));
     const updated = lastChange(onChange);
     expect(updated.queryType).toBe('traces');
-    expect(updated.rawSql).toBe('SELECT * FROM "prd" LIMIT 20');
+    // The log statement is gone: it cannot run against a trace stream, and
+    // keeping it would show results for a type the user just left.
+    expect(updated.rawSql).toBe('');
   });
 
-  it('keeps the rest of the statement when it adopts the first stream', async () => {
+  it('drops the previous type\'s statement when it adopts the first stream', async () => {
     const datasource = newDatasource({
       listStreams: jest.fn().mockImplementation((type: string) =>
         Promise.resolve(type === 'traces' ? ['prd'] : ['logs_stream'])
@@ -473,10 +502,12 @@ describe('QueryEditorSQL / stream type switch', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
 
     await waitFor(() => expect(lastChange(onChange).table).toBe('prd'));
-    expect(lastChange(onChange).rawSql).toBe('SELECT count(*) AS "c" FROM "prd" WHERE a = 1 LIMIT 5');
+    // A statement written for logs cannot run against traces, so it goes away
+    // rather than being retargeted at a stream of a different type.
+    expect(lastChange(onChange).rawSql).toBe('');
   });
 
-  it('does not touch the stream when the type has no streams', async () => {
+  it('clears the statement when the type has no streams', async () => {
     const datasource = newDatasource({
       listStreams: jest.fn().mockImplementation((type: string) =>
         Promise.resolve(type === 'traces' ? [] : ['vnet_bff_dev'])
@@ -491,11 +522,13 @@ describe('QueryEditorSQL / stream type switch', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
     await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('traces'));
 
-    // Nothing to adopt: the statement keeps its stream rather than being cleared.
-    expect(lastChange(onChange).rawSql).toBe('SELECT * FROM "vnet_bff_dev"');
+    // Nothing to adopt, but the previous type's statement is still gone: it
+    // cannot run against traces.
+    expect(lastChange(onChange).rawSql).toBe('');
+    expect(lastChange(onChange).deferRun).toBe(false);
   });
 
-  it('keeps the stream when the list cannot be loaded', async () => {
+  it('clears the query when the stream list cannot be loaded', async () => {
     const datasource = newDatasource({
       listStreams: jest.fn().mockImplementation((type: string) =>
         type === 'traces' ? Promise.reject(new Error('offline')) : Promise.resolve(['vnet_bff_dev'])
@@ -510,7 +543,15 @@ describe('QueryEditorSQL / stream type switch', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
     await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('traces'));
 
-    expect(lastChange(onChange).rawSql).toBe('SELECT * FROM "vnet_bff_dev"');
+    // The log statement is dropped and the deferred flag cleared, so the panel
+    // empties instead of showing log rows under a traces query.
+    const updated = lastChange(onChange);
+    expect(updated.rawSql).toBe('');
+    expect(updated.deferRun).toBe(false);
+    // The load failure is reported rather than swallowed.
+    expect(screen.getAllByRole('alert').map(el => el.textContent).join(' ')).toContain(
+      'Cannot list traces streams'
+    );
   });
 });
 
