@@ -328,6 +328,25 @@ describe('QueryEditorSQL / builder and code isolation', () => {
     expect(updated.rawSql).toBe('SELECT * FROM "mine" WHERE a = 1');
   });
 
+  it('does not run the query when the stream type changes', async () => {
+    // Switching type changes which parameters are meaningful, so a query fired
+    // at that moment is half-built and usually errors. The user asked for a
+    // type, not for a run.
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockResolvedValue(['vnet_bff_dev']),
+      streamHasData: jest.fn().mockResolvedValue(true),
+    });
+    const { onRunQuery } = renderEditor({ datasource, query: { queryType: 'logs' } });
+    await waitFor(() => expect(screen.getByRole('group', { name: 'stream-type' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
+    await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('traces'));
+    // Give the auto-select effect room to settle before asserting.
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    expect(onRunQuery).not.toHaveBeenCalled();
+  });
+
   it('changing the limit in builder mode does not touch the statement', () => {
     // Writing the limit into rawSql made the query look hand-written, which
     // flipped the editor to Code as soon as the field was edited.

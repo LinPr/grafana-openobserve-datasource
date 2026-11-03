@@ -138,7 +138,7 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
           />
         </InlineField>
 
-        <InlineField label="Trace stream" tooltip="The OpenObserve stream holding the spans">
+        <InlineField label="Trace stream" tooltip="The trace stream holding the spans">
           <Select<string>
             inputId="trace-editor-stream"
             width={22}
@@ -201,7 +201,7 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
           </Stack>
 
           <Stack direction="row" gap={1} wrap>
-            <InlineField label="Tags" grow tooltip="Space separated key=value filters, e.g. http.status_code=200">
+            <InlineField label="Attributes" grow tooltip="Space separated key=value filters, e.g. http.status_code=200">
               <Input
                 id="trace-editor-tags"
                 placeholder="error=true http.status_code=200"
@@ -217,19 +217,6 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
               />
             </InlineField>
 
-            <InlineField label="Limit" tooltip="How many traces to list">
-              <Input
-                id="trace-editor-limit"
-                width={12}
-                type="number"
-                min={0}
-                value={query.size ?? DEFAULT_TRACE_LIMIT}
-                onChange={event => {
-                  const next = Number(event.currentTarget.value);
-                  patch({ size: Number.isFinite(next) ? next : 0 });
-                }}
-              />
-            </InlineField>
           </Stack>
         </>
       )}
@@ -265,6 +252,22 @@ export function TraceQueryEditor({ datasource, query, onChange, onRunQuery }: Tr
           </InlineField>
         </Stack>
       )}
+
+      <Stack direction="row" gap={1} wrap>
+            <InlineField label="Limit" tooltip="How many traces to list">
+              <Input
+                id="trace-editor-limit"
+                width={12}
+                type="number"
+                min={0}
+                value={query.size ?? DEFAULT_TRACE_LIMIT}
+                onChange={event => {
+                  const next = Number(event.currentTarget.value);
+                  patch({ size: Number.isFinite(next) ? next : 0 });
+                }}
+              />
+            </InlineField>
+      </Stack>
 
       {error && (
         <div role="alert" style={{ color: 'var(--text-warning)', marginTop: 4 }}>

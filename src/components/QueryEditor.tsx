@@ -35,6 +35,12 @@ import { TraceQueryEditor } from './TraceQueryEditor';
 
 type Props = QueryEditorProps<OpenObserveDataSource, OpenObserveQuery, OpenObserveOptions>;
 
+const SIGNAL_LABELS: Record<StreamType, string> = {
+  logs: 'Log',
+  metrics: 'Metric',
+  traces: 'Trace',
+};
+
 const STREAM_TYPES: Array<SelectableValue<StreamType>> = [
   { label: 'Logs', value: 'logs' },
   { label: 'Metrics', value: 'metrics' },
@@ -59,35 +65,6 @@ const QUERY_MODES: Array<SelectableValue<'sql' | 'promql'>> = [
  * editor itself. Everything that knows about OpenObserve semantics lives in the
  * Go backend.
  */
-/**
- * Chooses the stream to adopt when the user switches the stream type.
- *
- * The catalogue lists every stream of a type, including ones that are stale or
- * empty, so the first name can be a dead end -- the trace catalogue here starts
- * with "dev" (no rows) while "prd" is the live one. This probes at most a
- * handful of candidates and returns the first with data, falling back to the
- * first name so the picker is never left empty.
- */
-async function pickDefaultStream(
-  names: string[],
-  streamType: StreamType,
-  datasource: OpenObserveDataSource,
-  range?: { from: number; to: number }
-): Promise<string> {
-  const candidates = names.slice(0, 5);
-  for (const name of candidates) {
-    try {
-      const has = await datasource.streamHasData(streamType, name, range);
-      if (has) {
-        return name;
-      }
-    } catch {
-      // Probing is best effort; fall through to the next candidate.
-    }
-  }
-  return names[0];
-}
-
 export function QueryEditorSQL(props: Props): React.JSX.Element {
   const { datasource, query, onChange, onRunQuery } = props;
 
@@ -141,7 +118,7 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
     let cancelled = false;
     datasource
       .listStreams(streamType)
-      .then(async names => {
+      .then(names => {
         if (cancelled) {
           return;
         }
@@ -153,17 +130,22 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         // so the editor is immediately runnable.
         if (pendingAutoSelect.current && names.length > 0) {
           pendingAutoSelect.current = false;
-          // Trace catalogues list streams that may be empty (stale or unused),
-          // so the first name is not necessarily a useful default. Prefer a
-          // stream that actually has data in the panel's time range.
-          const table = await pickDefaultStream(names, streamType, datasource);
+          /*
+           * The first stream of the type, with no probe query. Probing each
+           * candidate to find one with data meant a burst of requests every
+           * time the type changed -- exactly the traffic this is meant to
+           * avoid. Adopting the first name keeps the switch silent; the user
+           * can pick another stream from the list.
+           */
+          const table = names[0];
           const merged = { ...latestQuery.current, table, rawSql: retargetStream(latestQuery.current.rawSql ?? '', table) };
           latestQuery.current = merged;
           onChange(merged);
-          // The type switch itself cannot run the query (the stream is only
-          // valid once this list has loaded), so run it here instead: switching
-          // type must refresh the panel rather than leave stale results.
-          onRunQuery();
+          // Deliberately no run here. Switching stream type changes which
+          // parameters are meaningful, so a query fired at this instant is
+          // half-built and typically fails -- the user gets an error banner for
+          // something they did not ask to run. The panel shows the last result
+          // until the user presses Run query.
         }
       })
       .catch(error => {
@@ -173,7 +155,6 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         pendingAutoSelect.current = false;
         setStreams([]);
         setStreamsError(error?.data?.error ?? error?.message ?? String(error));
-        onRunQuery();
       });
     return () => {
       cancelled = true;
@@ -322,6 +303,13 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
     return items;
   }, [streams, fields]);
 
+  /*
+   * OpenObserve has one catalogue per signal, so "Stream" on its own is
+   * ambiguous once the type can be logs, metrics or traces. The labels name the
+   * signal to keep the editor unambiguous.
+   */
+  const streamLabel = `${SIGNAL_LABELS[streamType]} stream`;
+
   const warning = streamsError ? `Cannot list ${streamType} streams: ${streamsError}` : undefined;
 
   return (
@@ -374,7 +362,7 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         )}
 
         {streamType !== 'traces' && editorMode === 'code' && (
-        <InlineField label="Stream" tooltip="The stream the query selects from" grow>
+        <InlineField label={streamLabel} tooltip="The stream the query selects from" grow>
           <Select<string>
             inputId="query-editor-stream"
             width={30}
@@ -388,19 +376,22 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         </InlineField>
         )}
 
-        {streamType !== 'traces' && (
-        <InlineField label="Limit" tooltip="Maximum rows to return">
-          <Input
-            id="query-editor-limit"
-            width={10}
-            type="number"
-            min={0}
-            value={queryWithDefaults.size ?? DEFAULT_LIMIT}
-            onChange={onSizeChange}
-          />
-        </InlineField>
-        )}
       </Stack>
+
+      {streamType !== 'traces' && (
+        <Stack direction="row" gap={1} wrap>
+          <InlineField label="Limit" tooltip="Maximum rows to return">
+            <Input
+              id="query-editor-limit"
+              width={10}
+              type="number"
+              min={0}
+              value={queryWithDefaults.size ?? DEFAULT_LIMIT}
+              onChange={onSizeChange}
+            />
+          </InlineField>
+        </Stack>
+      )}
 
       {warning && (
         <div style={{ color: 'var(--text-warning)', marginBottom: 8 }} role="alert">
@@ -422,6 +413,7 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
           query={queryWithDefaults}
           streams={streams}
           fields={fields.map(f => f.label)}
+          streamLabel={streamLabel}
           onChange={onBuilderChange}
         />
       ) : mode === 'promql' ? (

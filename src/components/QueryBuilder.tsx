@@ -43,6 +43,8 @@ type Props = {
   query: OpenObserveQuery;
   streams: Array<SelectableValue<string>>;
   fields: string[];
+  /** Label for the stream picker, e.g. "Log stream"; the signal varies. */
+  streamLabel: string;
   onChange: (next: Partial<OpenObserveQuery>, run?: boolean) => void;
 };
 
@@ -54,7 +56,7 @@ type Props = {
  *
  * Nothing here writes into `rawSql`.
  */
-export function QueryBuilder({ query, streams, fields, onChange }: Props): React.JSX.Element {
+export function QueryBuilder({ query, streams, fields, streamLabel, onChange }: Props): React.JSX.Element {
   const aggregation = query.builderAggregation ?? '';
   const isAggregated = aggregation !== '';
   const needsField = isAggregated && aggregation !== 'count';
@@ -77,7 +79,7 @@ export function QueryBuilder({ query, streams, fields, onChange }: Props): React
 
   return (
     <div data-testid="query-builder">
-      <InlineField label="Stream" tooltip="The stream to read" grow>
+      <InlineField label={streamLabel} tooltip="The stream to read" grow>
         <Select<string>
           inputId="builder-stream"
           width={40}

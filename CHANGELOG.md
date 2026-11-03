@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.3.1
+
+### Changed
+
+- **Switching stream type no longer sends a query.** The new type changes which
+  parameters are meaningful, so a query fired at that moment is half-built and
+  usually fails; the user asked for a type, not for a run. Probes that looked
+  for a non-empty stream are gone for the same reason -- they cost one request
+  per candidate on every switch.
+- Trace `Tags` is now `Attributes`, the name OpenTelemetry uses for the
+  key/value pairs.
+- The stream picker names its signal (`Log stream`, `Metric stream`, `Trace
+  stream`) instead of the ambiguous "Stream".
+- The limit is on its own last row in every editor.
+
 ## 2.3.0
 
 ### Changed
