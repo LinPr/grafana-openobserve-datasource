@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.0
+
+### Added
+
+- **Builder / Code editor modes**, matching how Grafana's own query editors
+  work. Builder takes structured inputs (stream, aggregation, field, interval,
+  group by) and the backend derives the SQL from them. Code is the statement
+  you write. Neither writes into the other, so switching modes never loses
+  work: choosing options can no longer render generated SQL into a
+  hand-written statement, and a builder query never has a half-built statement
+  in its editor.
+
+### Fixed
+
+- Builder queries were filtered out before being sent, so the panel never ran.
+
 ## 2.1.1
 
 ### Fixed

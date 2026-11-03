@@ -12,8 +12,17 @@ export type TraceMode = 'search' | 'traceId' | 'graph';
 /** The shape the backend turns the response into. */
 export type ResultFormat = 'auto' | 'logs' | 'table' | 'timeseries' | 'trace' | 'annotations';
 
-/** Editor mode, kept for compatibility with old saved dashboards. */
-export type EditorMode = 'code' | 'builder';
+/**
+ * How the editor expresses the query.
+ *
+ * `builder` uses structured fields and the backend derives the SQL from them;
+ * `code` is the statement the user wrote. The two never write into each other,
+ * so switching modes cannot clobber work.
+ */
+export type EditorMode = 'builder' | 'code';
+
+/** Aggregations the builder offers. */
+export type BuilderAggregation = 'avg' | 'sum' | 'min' | 'max' | 'count' | 'p50' | 'p95' | 'p99';
 
 /**
  * Represents a query specific to the OpenObserve data source.
@@ -34,8 +43,15 @@ export interface OpenObserveQuery {
 
   /** Frame shape requested from the backend. */
   format?: ResultFormat;
-  /** Legacy field kept so old dashboards keep loading. */
+  /** builder (structured fields) or code (hand-written SQL). */
   editorMode?: EditorMode;
+
+  /** Builder fields; only read when editorMode is "builder". */
+  builderStream?: string;
+  builderAggregation?: BuilderAggregation | '';
+  builderField?: string;
+  builderInterval?: string;
+  builderGroupBy?: string[];
 
   /** Row limit override. 0 means "derive from LIMIT / datasource default". */
   size?: number;

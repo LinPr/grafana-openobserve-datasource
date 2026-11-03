@@ -24,11 +24,13 @@ import { OpenObserveDataSource } from '../datasource';
 import {
   DEFAULT_QUERY,
   DEFAULT_SQL,
+  EditorMode,
   OpenObserveOptions,
   OpenObserveQuery,
   StreamType,
 } from '../types';
 import { completionFetchFields, extractFirstTable, extractLimit, retargetStream, setSqlLimit } from '../utils/completion';
+import { QueryBuilder } from './QueryBuilder';
 import { TraceQueryEditor } from './TraceQueryEditor';
 
 type Props = QueryEditorProps<OpenObserveDataSource, OpenObserveQuery, OpenObserveOptions>;
@@ -37,6 +39,11 @@ const STREAM_TYPES: Array<SelectableValue<StreamType>> = [
   { label: 'Logs', value: 'logs' },
   { label: 'Metrics', value: 'metrics' },
   { label: 'Traces', value: 'traces' },
+];
+
+const EDITOR_MODES: Array<SelectableValue<EditorMode>> = [
+  { label: 'Builder', value: 'builder', description: 'Pick streams and aggregations; the SQL is generated' },
+  { label: 'Code', value: 'code', description: 'Write the query yourself' },
 ];
 
 const QUERY_MODES: Array<SelectableValue<'sql' | 'promql'>> = [
@@ -109,6 +116,13 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
 
   const mode = queryWithDefaults.queryMode ?? 'sql';
   const streamType = queryWithDefaults.queryType ?? 'logs';
+  /*
+   * A saved query with a statement but no explicit mode is code: it was written
+   * by hand, and opening it in the builder would hide it. Everything else
+   * defaults to the builder, which is the friendlier starting point.
+   */
+  const editorMode: EditorMode =
+    queryWithDefaults.editorMode ?? (queryWithDefaults.rawSql?.trim() ? 'code' : 'builder');
 
   const [streams, setStreams] = useState<Array<SelectableValue<string>>>([]);
   const [streamsError, setStreamsError] = useState<string | undefined>();
@@ -215,6 +229,12 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
     );
   };
 
+  const onEditorModeChange = (next: EditorMode) => {
+    // Switching modes only flips the flag: neither the builder fields nor the
+    // written statement are touched, so going back and forth loses nothing.
+    patch({ editorMode: next }, true);
+  };
+
   const onModeChange = (option: SelectableValue<'sql' | 'promql'>) => {
     const nextMode = option.value ?? 'sql';
     // Same reasoning as onStreamChange: PromQL needs a metric to be valid, and
@@ -240,6 +260,19 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
     // the projection, WHERE, GROUP BY, LIMIT -- is left byte for byte alone.
     patch({ table, rawSql: retargetStream(queryWithDefaults.rawSql ?? '', table) }, true);
   };
+
+  /*
+   * The builder keeps its stream in `builderStream` so it never rewrites the
+   * statement's FROM target. `table` is mirrored only for field completion.
+   */
+  const onBuilderChange = useCallback(
+    (next: Partial<OpenObserveQuery>, run = false) => {
+      const withTable =
+        next.builderStream !== undefined ? { ...next, table: next.builderStream ?? undefined } : next;
+      patch(withTable, run);
+    },
+    [patch]
+  );
 
   const onSqlChange = (value: string) => {
     // ... and the other way round: a LIMIT typed into the editor updates the field.
@@ -327,6 +360,21 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         </InlineField>
 
         {streamType !== 'traces' && (
+        <InlineField
+          label="Editor"
+          htmlFor="query-editor-mode-toggle"
+          tooltip="Builder picks streams and aggregations; Code is the statement you write"
+        >
+          <RadioButtonGroup<EditorMode>
+            options={EDITOR_MODES}
+            value={editorMode}
+            onChange={onEditorModeChange}
+            aria-label="editor-mode"
+          />
+        </InlineField>
+        )}
+
+        {streamType !== 'traces' && editorMode === 'code' && (
         <InlineField label="Stream" tooltip="The stream the query selects from" grow>
           <Select<string>
             inputId="query-editor-stream"
@@ -380,7 +428,16 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
       */}
       {streamType === 'traces' && <TraceQueryEditor datasource={datasource} query={queryWithDefaults} onChange={onChange} onRunQuery={onRunQuery} />}
 
-      {streamType === 'traces' ? null : mode === 'promql' ? (
+      {streamType === 'traces' ? null : editorMode === 'builder' ? (
+        // The builder renders the derived query preview, never the statement,
+        // so a hand-written SQL is never overwritten by an aggregation choice.
+        <QueryBuilder
+          query={queryWithDefaults}
+          streams={streams}
+          fields={fields.map(f => f.label)}
+          onChange={onBuilderChange}
+        />
+      ) : mode === 'promql' ? (
         <CodeEditor
           value={queryWithDefaults.expr ?? ''}
           language="promql"
@@ -403,7 +460,7 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         />
       )}
 
-      {!queryWithDefaults.rawSql && mode === 'sql' && streamType !== 'traces' && (
+      {streamType !== 'traces' && editorMode === 'code' && mode === 'sql' && !queryWithDefaults.rawSql && (
         <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
           Example: <code>{DEFAULT_SQL}</code> — pick a stream above to fill it in.
         </div>

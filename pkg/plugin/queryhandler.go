@@ -18,8 +18,17 @@ import (
 type QueryModel struct {
 	// QueryType is the OpenObserve stream type: logs, metrics or traces.
 	QueryType string `json:"queryType"`
-	// EditorMode is "code" (raw SQL) or "builder".
+	// EditorMode is "code" (the user writes SQL) or "builder" (the editor sends
+	// structured fields and the SQL is derived from them).
 	EditorMode string `json:"editorMode"`
+
+	// BuilderStream etc. describe a builder query. They are only read when
+	// EditorMode is "builder", so they never disturb a hand-written statement.
+	BuilderStream      string   `json:"builderStream"`
+	BuilderAggregation string   `json:"builderAggregation"`
+	BuilderField       string   `json:"builderField"`
+	BuilderInterval    string   `json:"builderInterval"`
+	BuilderGroupBy     []string `json:"builderGroupBy"`
 	// RawSql is the SQL statement.
 	RawSql string `json:"rawSql"`
 	// RawQuery marks variable queries.
@@ -73,6 +82,8 @@ const (
 	queryModeSQL    = "sql"
 	queryModePromQL = "promql"
 	queryModeTrace  = "trace"
+
+	editorModeBuilder = "builder"
 
 	formatAuto        = "auto"
 	formatLogs        = "logs"
@@ -209,6 +220,23 @@ func (d *Datasource) runSQLQuery(ctx context.Context, q backend.DataQuery) backe
 	model, err := parseQueryModel(q)
 	if err != nil {
 		return backend.ErrDataResponseWithSource(backend.StatusBadRequest, backend.ErrorSourceDownstream, err.Error())
+	}
+	// In builder mode the statement is derived from the structured fields, so a
+	// hand-written one is neither required nor consulted.
+	if model.EditorMode == editorModeBuilder {
+		built := openobserve.BuildBuilderSQL(openobserve.BuilderQuery{
+			Stream:      model.BuilderStream,
+			Aggregation: model.BuilderAggregation,
+			Field:       model.BuilderField,
+			Interval:    model.BuilderInterval,
+			GroupBy:     model.BuilderGroupBy,
+			Limit:       model.Size,
+		}, d.settings.JsonData.DefaultLimit)
+		if built == "" {
+			return backend.ErrDataResponseWithSource(backend.StatusBadRequest, backend.ErrorSourceDownstream,
+				"the builder query is incomplete: pick a stream, and a field for anything other than count(*)")
+		}
+		model.RawSql = built
 	}
 	if model.RawSql == "" {
 		return backend.ErrDataResponseWithSource(backend.StatusBadRequest, backend.ErrorSourceDownstream, "the query is empty: write a SELECT statement such as SELECT * FROM \"my_stream\" LIMIT 100")

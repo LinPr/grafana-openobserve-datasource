@@ -103,6 +103,11 @@ export class OpenObserveDataSource extends DataSourceWithBackend<OpenObserveQuer
     if (query.queryType === 'traces') {
       return Boolean(query.table || query.traceId || query.traceMode);
     }
+    // The builder holds structured fields and lets the backend write the SQL,
+    // so it has no rawSql either. Dropping it here meant the panel never ran.
+    if (query.editorMode === 'builder') {
+      return Boolean(query.builderStream);
+    }
     return Boolean(query.rawSql || query.expr);
   }
 

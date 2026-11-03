@@ -52,8 +52,9 @@ original column as an attribute:
 
 ### The query editor
 
-Stream type, query mode (SQL / PromQL), result format, stream picker, row limit,
-SSE and cache — the whole query surface in one row:
+Stream type, query mode (SQL / PromQL), Builder or Code, stream picker, row
+limit, SSE and cache — the whole query surface in one row. Builder and Code are
+independent, so choosing options never overwrites a statement you wrote:
 
 ![Query editor](doc/screenshot/query_editor.png)
 
@@ -315,7 +316,21 @@ Pick the `traces` stream type, choose a trace stream, then pick a query type:
 - **TraceID** renders one trace as the waterfall.
 - **Graph** draws the service dependency graph.
 
-### 5. Limit
+### 5. Builder or Code
+
+The editor has two modes, like Grafana's other datasources:
+
+- **Builder** takes structured inputs — stream, aggregation, field, interval and
+  group by — and the backend derives the SQL. Nothing is written into a
+  statement, so this is the mode to use when you would rather not write SQL.
+- **Code** is the statement you write, with completion for streams and columns.
+
+Switching modes never loses work: the structured fields and the statement are
+stored separately, so going back and forth keeps both. A saved query that
+already has SQL opens in Code, because that statement was written by hand.
+
+### 6. Limit
+
 
 The **Limit** field and the SQL `LIMIT` stay in step: typing one updates the
 other, so the panel and the statement never disagree about row counts.

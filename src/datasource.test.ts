@@ -53,6 +53,16 @@ describe('OpenObserveDataSource', () => {
     expect(ds.filterQuery({ refId: 'A', queryType: 'metrics', expr: 'up' })).toBe(true);
   });
 
+  it('keeps builder queries even though they have no statement', () => {
+    // The builder sends structured fields; the backend derives the SQL.
+    const ds = newDatasource();
+    expect(ds.filterQuery({ refId: 'A', queryType: 'logs', editorMode: 'builder', builderStream: 'vnet_bff_dev' })).toBe(
+      true
+    );
+    // ... but an empty builder query has nothing to run.
+    expect(ds.filterQuery({ refId: 'A', queryType: 'logs', editorMode: 'builder' })).toBe(false);
+  });
+
   it('keeps trace queries even though the backend writes their SQL', () => {
     // Trace queries describe themselves with structured fields; filtering them
     // out here meant they were never sent, so the panel always showed no data.

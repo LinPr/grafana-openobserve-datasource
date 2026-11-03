@@ -21,8 +21,8 @@ jest.mock('@grafana/ui', () => {
         onBlur={event => onBlur(event.currentTarget.value)}
       />
     ),
-    RadioButtonGroup: ({ options, value, onChange }: any) => (
-      <div role="group" aria-label="stream-type">
+    RadioButtonGroup: ({ options, value, onChange, 'aria-label': ariaLabel }: any) => (
+      <div role="group" aria-label={ariaLabel ?? 'stream-type'}>
         {(options ?? []).map((option: any) => (
           <button
             key={String(option.value)}
@@ -116,7 +116,8 @@ function Harness({
 function renderEditor(options: RenderOptions = {}) {
   const onChange = jest.fn();
   const onRunQuery = jest.fn();
-  const query = { refId: 'A', queryType: 'logs', ...options.query } as OpenObserveQuery;
+  // Default these fixtures to Code: the suites below drive the SQL editor.
+  const query = { refId: 'A', queryType: 'logs', editorMode: 'code', ...options.query } as OpenObserveQuery;
   const datasource = options.datasource ?? newDatasource();
 
   const view = render(
@@ -295,6 +296,58 @@ describe('QueryEditorSQL', () => {
   it('shows a hint when the SQL is still empty', () => {
     renderEditor({ query: { queryType: 'logs', queryMode: 'sql', rawSql: '' } });
     expect(screen.getByText(/SELECT \* FROM/i)).toBeInTheDocument();
+  });
+});
+
+describe('QueryEditorSQL / builder and code isolation', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('defaults a query without a statement to the builder', () => {
+    renderEditor({ query: { queryType: 'logs', editorMode: undefined, rawSql: '' } });
+    expect(screen.getByTestId('query-builder')).toBeInTheDocument();
+    // The SQL editor must not be on screen: picking options used to render
+    // generated SQL into it, which is what this split exists to prevent.
+    expect(screen.queryByLabelText('code-sql')).not.toBeInTheDocument();
+  });
+
+  it('opens an existing statement in code mode', () => {
+    // A saved query with SQL was written by hand; hiding it in the builder
+    // would look like data loss.
+    renderEditor({ query: { queryType: 'logs', editorMode: undefined, rawSql: 'SELECT * FROM "x"' } });
+    expect(screen.getByLabelText('code-sql')).toBeInTheDocument();
+    expect(screen.queryByTestId('query-builder')).not.toBeInTheDocument();
+  });
+
+  it('never writes generated SQL into the statement', async () => {
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockResolvedValue(['vnet_bff_dev', 'alerta']),
+    });
+    const { onChange } = renderEditor({
+      datasource,
+      query: { queryType: 'logs', editorMode: 'builder', rawSql: 'SELECT * FROM "mine" WHERE a = 1', builderStream: '' },
+    });
+    // The stream list is fetched; the option has to exist before it can be picked.
+    await waitFor(() => expect(screen.getByTestId('builder-stream').querySelectorAll('option').length).toBeGreaterThan(1));
+
+    fireEvent.change(screen.getByTestId('builder-stream'), { target: { value: 'vnet_bff_dev' } });
+
+    const updated = lastChange(onChange);
+    expect(updated.builderStream).toBe('vnet_bff_dev');
+    // The hand-written statement survives untouched.
+    expect(updated.rawSql).toBe('SELECT * FROM "mine" WHERE a = 1');
+  });
+
+  it('keeps builder fields when switching to code and back', () => {
+    const { onChange } = renderEditor({
+      query: { queryType: 'logs', editorMode: 'builder', rawSql: '', builderStream: 'vnet_bff_dev', builderAggregation: 'avg' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Code' }));
+    const toCode = lastChange(onChange);
+    expect(toCode.editorMode).toBe('code');
+    // Switching modes is a flag flip; the structured fields stay.
+    expect(toCode.builderStream).toBe('vnet_bff_dev');
+    expect(toCode.builderAggregation).toBe('avg');
   });
 });
 
