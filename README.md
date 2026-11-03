@@ -48,53 +48,39 @@ and the datasource settings.
 Log lines render with their level colour, and the details pane shows every
 original column as an attribute:
 
-![Logs in Explore](doc/screenshot/explore_logs.png)
+| Logs in Explore | The query editor |
+|---|---|
+| ![Logs in Explore](doc/screenshot/explore_logs.png) | ![Query editor](doc/screenshot/query_editor.png) |
 
-### The query editor
-
-Stream type, query mode (SQL / PromQL) and Builder or Code on the first row,
-then the stream, then a Raw/Aggregate switch for the builder. The limit comes
-last, after the inputs that shape the query. Builder and Code are independent,
-so choosing options never overwrites a statement you wrote:
-
-![Query editor](doc/screenshot/query_editor.png)
+The editor puts stream type, query mode (SQL / PromQL) and Builder or Code on
+the first row, then the stream, then a Raw/Aggregate switch for the builder. The
+limit comes last, after the inputs that shape the query. Builder and Code are
+independent, so choosing options never overwrites a statement you wrote.
 
 ### Metrics over SQL, with automatic series labels
 
 `GROUP BY service_name` becomes one labelled series per service — no transform,
-no SQL aliasing tricks:
+no SQL aliasing tricks. The same metric streams are queryable through
+OpenObserve's Prometheus compatible API, so `rate()`, `histogram_quantile()` and
+label matchers all work:
 
-![Metrics over SQL](doc/screenshot/explore_metrics_sql.png)
-
-### PromQL
-
-The same metric streams, queried through OpenObserve's Prometheus compatible API,
-so `rate()`, `histogram_quantile()` and label matchers all work:
-
-![PromQL](doc/screenshot/explore_promql.png)
+| Metrics over SQL | PromQL |
+|---|---|
+| ![Metrics over SQL](doc/screenshot/explore_metrics_sql.png) | ![PromQL](doc/screenshot/explore_promql.png) |
 
 ### Traces: three query types
 
 The trace editor mirrors Jaeger's three modes and the backend builds the SQL for
-each one.
+each one. **Search** lists the traces matching the filters, and clicking a trace
+id opens that trace inside Grafana. **TraceID** loads every span of one trace so
+Explore draws the native waterfall. **Graph** derives service-to-service call
+counts from the span parent links and renders them as a node graph, taking the
+callee from OpenObserve's inferred service name so a client span attributes to
+the system it calls rather than to the caller.
 
-**Search** lists the traces that match the filters (service, operation, tags,
-min/max duration). The columns match what Grafana's Jaeger plugin returns, and
-clicking a trace id opens that trace inside Grafana:
-
-![Trace search](doc/screenshot/trace_search.png)
-
-**TraceID** loads every span of one trace in start order, so Explore draws the
-native waterfall with real parent/child nesting:
-
-![Trace waterfall](doc/screenshot/trace_waterfall.png)
-
-**Graph** derives service-to-service call counts from the span parent links and
-renders them as a Grafana node graph. The callee is taken from OpenObserve's
-inferred service name, so a client span attributes to the system it calls rather
-than to the caller:
-
-![Trace graph](doc/screenshot/trace_graph.png)
+| Search | TraceID (waterfall) | Graph |
+|---|---|---|
+| ![Trace search](doc/screenshot/trace_search.png) | ![Trace waterfall](doc/screenshot/trace_waterfall.png) | ![Trace graph](doc/screenshot/trace_graph.png) |
 
 ### A dashboard with everything mixed
 
@@ -108,9 +94,9 @@ single data source:
 A variable is just a SQL query — the first column becomes the value. Multi-value
 selections are correctly quoted into `IN (...)`:
 
-![Dashboard variables](doc/screenshot/dashboard_variables.png)
-
-![Variable query editor](doc/screenshot/variable_query_editor.png)
+| Dashboard with variables | The variable query editor |
+|---|---|
+| ![Dashboard variables](doc/screenshot/dashboard_variables.png) | ![Variable query editor](doc/screenshot/variable_query_editor.png) |
 
 ### Ad-hoc filters
 
@@ -125,9 +111,9 @@ selected filter is injected server side as a SQL predicate — here
 Connection, authentication (basic auth or token), TLS, query limits and column
 mapping:
 
-![Datasource settings](doc/screenshot/config_editor.png)
-
-![Token authentication](doc/screenshot/config_editor_token.png)
+| Basic authentication | Token authentication |
+|---|---|
+| ![Datasource settings](doc/screenshot/config_editor.png) | ![Token authentication](doc/screenshot/config_editor_token.png) |
 
 ### Panel gallery
 
