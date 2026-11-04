@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.3.3
+
+### Fixed
+
+- **Switching from logs or metrics to traces no longer queries the previous
+  type's stream.** The switch cleared the statement but kept `table`, so the
+  trace query asked OpenObserve for `go_memory_used` (or `vnet_bff_prd`) in the
+  trace catalogue and failed with `Search stream not found`. The stream is now
+  dropped along with the statement, and the new type's own stream is adopted.
+- **A trace stream with no spans is no longer chosen as the default.** Trace
+  catalogues often start with empty streams (`dev` here, next to the live
+  `prd`), and defaulting to one made a freshly switched panel show "0 series
+  returned". The first candidate that answers a one-row probe wins; results are
+  cached per session so the cost is paid once.
+
 ## 2.3.2
 
 ### Changed

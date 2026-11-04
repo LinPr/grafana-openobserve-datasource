@@ -65,6 +65,47 @@ const QUERY_MODES: Array<SelectableValue<'sql' | 'promql'>> = [
  * editor itself. Everything that knows about OpenObserve semantics lives in the
  * Go backend.
  */
+/**
+ * Probe results, so a stream is only ever checked once per session.
+ *
+ * OpenObserve's stream listing does not report row counts, so emptiness can only
+ * be learned with a one-row query. Caching keeps that cost to the first switch
+ * instead of repeating it on every one.
+ */
+const streamHasDataCache = new Map<string, boolean>();
+
+/**
+ * Returns the first trace stream that actually holds spans.
+ *
+ * An empty stream is a dead end: the panel shows "0 series returned" and looks
+ * broken even though nothing failed. Only the first few candidates are checked,
+ * and a failed probe is skipped rather than surfaced -- this is a convenience,
+ * not a query.
+ */
+async function firstTraceStreamWithData(names: string[], datasource: OpenObserveDataSource): Promise<string> {
+  const candidates = names.slice(0, 5);
+  // Ask about every candidate at once; the probes are one-row queries.
+  const results = await Promise.all(
+    candidates.map(async name => {
+      const key = `traces:${name}`;
+      const cached = streamHasDataCache.get(key);
+      if (cached !== undefined) {
+        return cached;
+      }
+      try {
+        const has = await datasource.streamHasData('traces', name);
+        streamHasDataCache.set(key, has);
+        return has;
+      } catch {
+        // Unreachable stream: treat it as empty and move on.
+        return false;
+      }
+    })
+  );
+  const index = results.findIndex(Boolean);
+  return index >= 0 ? candidates[index] : names[0];
+}
+
 export function QueryEditorSQL(props: Props): React.JSX.Element {
   const { datasource, query, onChange, onRunQuery } = props;
 
@@ -118,7 +159,7 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
     let cancelled = false;
     datasource
       .listStreams(streamType)
-      .then(names => {
+      .then(async names => {
         if (cancelled) {
           return;
         }
@@ -131,13 +172,18 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         if (pendingAutoSelect.current && names.length > 0) {
           pendingAutoSelect.current = false;
           /*
-           * The first stream of the type, with no probe query. Probing each
-           * candidate to find one with data meant a burst of requests every
-           * time the type changed -- exactly the traffic this is meant to
-           * avoid. Adopting the first name keeps the switch silent; the user
-           * can pick another stream from the list.
+           * The first stream of the type, with no probe query: probing every
+           * candidate meant a burst of requests on each switch, exactly the
+           * traffic this avoids.
+           *
+           * Traces are the exception. A trace catalogue often starts with
+           * streams that hold no spans (an empty `dev` next to the live `prd`),
+           * and defaulting to one of those makes a freshly switched panel look
+           * broken. The list is small, so the first candidate with data wins --
+           * one probe, done once per switch.
            */
-          const table = names[0];
+          const table =
+            streamType === 'traces' ? await firstTraceStreamWithData(names, datasource) : names[0];
           const merged = {
             ...latestQuery.current,
             table,
@@ -230,6 +276,18 @@ export function QueryEditorSQL(props: Props): React.JSX.Element {
         // than results belonging to a stream type the user just left.
         rawSql: '',
         expr: '',
+        /*
+         * The stream has to go as well. Leaving it meant the new type's query
+         * carried a stream from the old catalogue -- switching from metrics to
+         * traces asked OpenObserve for `go_memory_used` in the trace directory
+         * and failed with "Search stream not found". The effect below adopts a
+         * stream from the new type's list.
+         */
+        table: undefined,
+        builderStream: undefined,
+        // Traces need a query type; default to the list view so the form is
+        // coherent as soon as the editor renders.
+        traceMode: nextType === 'traces' ? queryWithDefaults.traceMode ?? 'search' : queryWithDefaults.traceMode,
         // Pinned so clearing the statement cannot flip the editor to Code: the
         // mode is derived from "is there a statement", so it has to be explicit.
         editorMode: editorMode,

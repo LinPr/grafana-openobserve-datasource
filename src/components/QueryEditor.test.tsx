@@ -328,6 +328,50 @@ describe('QueryEditorSQL / builder and code isolation', () => {
     expect(updated.rawSql).toBe('SELECT * FROM "mine" WHERE a = 1');
   });
 
+  it('drops the previous type\'s stream on a switch', async () => {
+    // Switching from metrics to traces used to keep the metric stream, so the
+    // trace query asked OpenObserve for `go_memory_used` in the trace
+    // catalogue and failed with "Search stream not found".
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockImplementation((type: string) =>
+        Promise.resolve(type === 'traces' ? ['prd'] : ['go_memory_used'])
+      ),
+      streamHasData: jest.fn().mockResolvedValue(true),
+    });
+    const { onChange } = renderEditor({
+      datasource,
+      query: { queryType: 'metrics', table: 'go_memory_used', rawSql: 'SELECT * FROM "go_memory_used"' },
+    });
+    await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('metrics'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
+
+    // The very first change already forgets the metric stream.
+    const switched = onChange.mock.calls.map(c => c[0] as OpenObserveQuery).find(q => q.queryType === 'traces');
+    expect(switched?.table).toBeUndefined();
+
+    // And the new type's own stream is adopted once its list arrives.
+    await waitFor(() => expect(lastChange(onChange).table).toBe('prd'));
+  });
+
+  it('prefers a trace stream that holds spans', async () => {
+    // A trace catalogue can start with empty streams; defaulting to one made
+    // the panel show "0 series returned" right after a switch.
+    const datasource = newDatasource({
+      listStreams: jest.fn().mockResolvedValue(['dev', 'go_bootstrap', 'prd']),
+      streamHasData: jest.fn().mockImplementation((_type: string, name: string) =>
+        Promise.resolve(name === 'prd')
+      ),
+    });
+    const { onChange } = renderEditor({ datasource, query: { queryType: 'logs', table: 'vnet_bff_dev' } });
+    await waitFor(() => expect(datasource.listStreams).toHaveBeenCalledWith('logs'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Traces' }));
+
+    await waitFor(() => expect(lastChange(onChange).table).toBe('prd'));
+    expect(lastChange(onChange).rawSql).toBe('');
+  });
+
   it('clears the panel on a type switch without querying the backend', async () => {
     // Grafana keeps the previous render when a target is filtered out, so the
     // editor asks for a run -- but the query is marked deferred, and the
