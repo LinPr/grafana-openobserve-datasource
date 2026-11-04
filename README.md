@@ -33,15 +33,18 @@ feel native to Grafana instead of exposing the raw API.
 
 ### Feature tour
 
-A 16-second walkthrough recorded against a live Grafana + OpenObserve: logs,
-SQL metrics, PromQL, the trace waterfall, a mixed dashboard, template variables
-and the datasource settings.
+A walkthrough recorded against a live Grafana + OpenObserve, in the order you
+would set the plugin up: the datasource settings, then logs (with a row expanded
+to its original columns), metrics through the builder, PromQL, the trace table,
+a real 9-span waterfall, the service graph, and finally a dashboard mixing logs,
+time series, a donut, a bar chart and a trace table.
 
 ![Feature tour](doc/screenshot/tour.gif)
 
-> The GIF is downscaled to keep the README light (5.2 MB). The sharper
-> [WebP version](doc/screenshot/tour.webp) is only 1.2 MB and shows the same
-> tour at full size; every view is also available as a still image below.
+> The GIF is 2.3 MB and holds each view for half a second. The sharper
+> [WebP version](doc/screenshot/tour.webp) is only 0.3 MB and shows the same
+> tour at higher resolution; every view is also available as a still image
+> below.
 
 ### Logs in Explore
 
