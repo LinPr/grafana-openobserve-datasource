@@ -341,14 +341,19 @@ correctly, so `WHERE service_name IN ($service_name)` just works.
 
 ## ✅ Compatibility
 
-| Grafana | Status |
-| ------- | ------ |
-| 12.2.x | tested (primary target) |
-| 10.4.4 | tested |
+The last patch release of every supported major was tested against the same live
+OpenObserve instance:
 
-Both versions were exercised against the same live OpenObserve instance: the
-health check, log queries, the trace editor (search / trace id / graph) and
-PromQL all return data, with no console or page errors.
+| Grafana | Health | Logs (builder) | Metrics (builder) | PromQL | Trace search | Trace graph | UI |
+| ------- | :----: | :------------: | :---------------: | :----: | :----------: | :---------: | :-: |
+| 10.4.19 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 11.6.16 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 12.4.14 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 13.3.0  | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+"UI" means the trace editor rendered in Explore with its three query types, the
+Attributes field and a populated result table, with no page errors and no
+console errors.
 
 Grafana provides `@grafana/ui`, `@grafana/data` and `@grafana/runtime` at
 runtime, so the plugin only uses APIs that exist in the oldest supported
