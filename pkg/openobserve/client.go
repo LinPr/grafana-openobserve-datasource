@@ -148,7 +148,7 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-  req.Header.Set("User-Agent", "linpr-openobserve-datasource")
+	req.Header.Set("User-Agent", "linpr-openobserve-datasource")
 	c.applyAuth(req)
 	return req, nil
 }
