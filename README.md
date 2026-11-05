@@ -221,17 +221,18 @@ Pick the route that matches your Grafana:
    `ghcr.io/linpr/grafana-openobserve-datasource` (see [Docker](#docker)).
 
 Every release ships **one archive per platform** plus a universal archive that
-holds all of them:
+holds all of them. Unzip one and the plugin directory inside is
+`linpr-openobserve-datasource`, which is the name Grafana looks up:
 
-| Archive                           | Contents                                         |
-| --------------------------------- | ------------------------------------------------ |
-| `...-<version>.zip`               | all platforms, what Grafana's catalogue expects  |
-| `...-<version>.linux-amd64.zip`   | Linux x86-64                                     |
-| `...-<version>.linux-arm64.zip`   | Linux ARM64 (Ampere, Graviton, Raspberry Pi 4/5) |
-| `...-<version>.linux-arm.zip`     | Linux ARMv7 (32-bit)                             |
-| `...-<version>.darwin-amd64.zip`  | macOS Intel                                      |
-| `...-<version>.darwin-arm64.zip`  | macOS Apple Silicon                              |
-| `...-<version>.windows-amd64.zip` | Windows x86-64                                   |
+| Archive                                                      | Contents                                         |
+| ------------------------------------------------------------ | ------------------------------------------------ |
+| `grafana-openobserve-datasource-<version>.zip`               | all platforms, what Grafana's catalogue expects  |
+| `grafana-openobserve-datasource-<version>.linux-amd64.zip`   | Linux x86-64                                     |
+| `grafana-openobserve-datasource-<version>.linux-arm64.zip`   | Linux ARM64 (Ampere, Graviton, Raspberry Pi 4/5) |
+| `grafana-openobserve-datasource-<version>.linux-arm.zip`     | Linux ARMv7 (32-bit)                             |
+| `grafana-openobserve-datasource-<version>.darwin-amd64.zip`  | macOS Intel                                      |
+| `grafana-openobserve-datasource-<version>.darwin-arm64.zip`  | macOS Apple Silicon                              |
+| `grafana-openobserve-datasource-<version>.windows-amd64.zip` | Windows x86-64                                   |
 
 `checksums.txt` lists the SHA-1 of each.
 
@@ -239,7 +240,7 @@ holds all of them:
 
 ```bash
 # Pick the archive for your platform, then:
-sudo unzip linpr-openobserve-datasource-<version>.linux-amd64.zip \
+sudo unzip grafana-openobserve-datasource-<version>.linux-amd64.zip \
   -d /var/lib/grafana/plugins/
 export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=linpr-openobserve-datasource
 ```

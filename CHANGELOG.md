@@ -24,6 +24,15 @@ Provisioning files need `type: linpr-openobserve-datasource`; keep the existing
 
 ## Unreleased
 
+### Changed
+
+- **Release archives are named `grafana-openobserve-datasource-<version>…zip`.**
+  The `linpr-` prefix is gone from the asset names, matching the branding of the
+  container image while keeping the file name recognisable. Only the file name
+  changed: the plugin id and the directory inside the archive are still
+  `linpr-openobserve-datasource`, so `grafana-cli plugins install` and the
+  catalogue keep working.
+
 ### Fixed
 
 - **The packaged `README.md` was still the `@grafana/create-plugin` template.**

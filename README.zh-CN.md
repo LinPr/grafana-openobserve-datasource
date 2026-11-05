@@ -195,17 +195,18 @@ span，由 Explore 画原生瀑布图；**Graph** 从 span 的父子关系推导
 3. **容器镜像** —— 从 `ghcr.io/linpr/grafana-openobserve-datasource` 里把插件拷出来
    （见 [Docker](#docker)）。
 
-每个 release 都会发布**每个平台一个压缩包**，外加一个包含全部平台的通用包：
+每个 release 都会发布**每个平台一个压缩包**，外加一个包含全部平台的通用包。
+解压后里面的插件目录仍然是 `linpr-openobserve-datasource`，这才是 Grafana 认的名字：
 
-| 压缩包                            | 内容                                        |
-| --------------------------------- | ------------------------------------------- |
-| `...-<version>.zip`               | 全部平台，Grafana 插件市场要的就是这个      |
-| `...-<version>.linux-amd64.zip`   | Linux x86-64                                |
-| `...-<version>.linux-arm64.zip`   | Linux ARM64（Ampere、Graviton、树莓派 4/5） |
-| `...-<version>.linux-arm.zip`     | Linux ARMv7（32 位）                        |
-| `...-<version>.darwin-amd64.zip`  | macOS Intel                                 |
-| `...-<version>.darwin-arm64.zip`  | macOS Apple Silicon                         |
-| `...-<version>.windows-amd64.zip` | Windows x86-64                              |
+| 压缩包                                                       | 内容                                        |
+| ------------------------------------------------------------ | ------------------------------------------- |
+| `grafana-openobserve-datasource-<version>.zip`               | 全部平台，Grafana 插件市场要的就是这个      |
+| `grafana-openobserve-datasource-<version>.linux-amd64.zip`   | Linux x86-64                                |
+| `grafana-openobserve-datasource-<version>.linux-arm64.zip`   | Linux ARM64（Ampere、Graviton、树莓派 4/5） |
+| `grafana-openobserve-datasource-<version>.linux-arm.zip`     | Linux ARMv7（32 位）                        |
+| `grafana-openobserve-datasource-<version>.darwin-amd64.zip`  | macOS Intel                                 |
+| `grafana-openobserve-datasource-<version>.darwin-arm64.zip`  | macOS Apple Silicon                         |
+| `grafana-openobserve-datasource-<version>.windows-amd64.zip` | Windows x86-64                              |
 
 `checksums.txt` 里是每个文件的 SHA-1。
 
@@ -213,7 +214,7 @@ span，由 Explore 画原生瀑布图；**Graph** 从 span 的父子关系推导
 
 ```bash
 # 换成你平台对应的压缩包，然后：
-sudo unzip linpr-openobserve-datasource-<version>.linux-amd64.zip \
+sudo unzip grafana-openobserve-datasource-<version>.linux-amd64.zip \
   -d /var/lib/grafana/plugins/
 export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=linpr-openobserve-datasource
 ```

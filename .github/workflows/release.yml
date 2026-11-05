@@ -85,10 +85,16 @@ jobs:
             exit 1
           fi
 
+          # Archive *filenames* drop the org prefix, so downloads read
+          # grafana-openobserve-datasource-*. Only the file name changes: the
+          # directory inside must stay equal to the plugin id, which is what
+          # Grafana and the catalogue validator read.
+          ARCHIVE_BASE="grafana-openobserve-datasource"
+
           # 1. The universal archive Grafana expects: one folder holding every
           #    platform binary, so `grafana-cli plugins install` works from a URL.
           mv "dist" "${PLUGIN_ID}"
-          ARCHIVE="${PLUGIN_ID}-${PLUGIN_VERSION}.zip"
+          ARCHIVE="${ARCHIVE_BASE}-${PLUGIN_VERSION}.zip"
           zip -qr "$ARCHIVE" "$PLUGIN_ID"
 
           # 2. One archive per platform, for anyone who only wants their own
@@ -115,7 +121,7 @@ jobs:
             jq 'del(.info.build)' "${stage}/${PLUGIN_ID}/plugin.json" > "${stage}/p.json" \
               && mv "${stage}/p.json" "${stage}/${PLUGIN_ID}/plugin.json"
 
-            per_arch="${PLUGIN_ID}-${PLUGIN_VERSION}.${SUFFIX[$target]}.zip"
+            per_arch="${ARCHIVE_BASE}-${PLUGIN_VERSION}.${SUFFIX[$target]}.zip"
             ( cd "$stage" && zip -qr "$OLDPWD/$per_arch" "$PLUGIN_ID" )
             rm -rf "$stage"
             printf '%-46s %s\n' "$per_arch" "$(du -h "$per_arch" | cut -f1)"
