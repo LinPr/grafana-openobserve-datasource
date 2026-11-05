@@ -258,12 +258,10 @@ page — pointing it at an HTML page yields the misleading
 `Could not process plugin archive: Error reading file`.
 
 `--pluginUrl` only bypasses the signature check; Grafana still refuses to load an
-unsigned plugin unless you allow it, so start the server with the plugin enabled
-and restart it afterwards:
+unsigned plugin unless you allow it, so restart the server with the plugin enabled:
 
 ```bash
 export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=linpr-openobserve-datasource
-grafana server --homepath /usr/share/grafana cfg:default.paths.plugins=/var/lib/grafana/plugins
 ```
 
 ### Linux / macOS

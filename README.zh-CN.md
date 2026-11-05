@@ -229,11 +229,10 @@ grafana cli \
 页面就会报出那个很容易误导人的 `Could not process plugin archive: Error reading file`。
 
 `--pluginUrl` 只是绕过了签名校验；Grafana 依然不会加载未签名的插件，除非你显式允许，
-所以启动时要带上开关，装完重启：
+所以重启时要带上这个开关：
 
 ```bash
 export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=linpr-openobserve-datasource
-grafana server --homepath /usr/share/grafana cfg:default.paths.plugins=/var/lib/grafana/plugins
 ```
 
 ### Linux / macOS
