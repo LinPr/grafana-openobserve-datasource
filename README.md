@@ -212,12 +212,14 @@ Pick the route that matches your Grafana:
 
 1. **Grafana catalogue** — once the plugin is listed and signed, install it from
    Grafana Cloud or with
-   `grafana-cli plugins install linpr-openobserve-datasource`. Unsigned builds
-   from the releases page cannot be installed this way.
-2. **Release archive** — download the archive for your platform from
+   `grafana cli plugins install linpr-openobserve-datasource`.
+2. **Grafana CLI, straight from GitHub** — the release archives are unsigned, but
+   `grafana cli` can install them anyway when you point it at the archive URL
+   with `--pluginUrl`, skipping the manual unzip (see [Grafana CLI](#grafana-cli)).
+3. **Release archive** — download the archive for your platform from
    [Releases](https://github.com/LinPr/grafana-openobserve-datasource/releases)
    and unpack it into the plugin directory, as described below.
-3. **Container image** — copy the plugin out of
+4. **Container image** — copy the plugin out of
    `ghcr.io/linpr/grafana-openobserve-datasource` (see [Docker](#docker)).
 
 Every release ships **one archive per platform** plus a universal archive that
@@ -235,6 +237,34 @@ holds all of them. Unzip one and the plugin directory inside is
 | `grafana-openobserve-datasource-<version>.windows-amd64.zip` | Windows x86-64                                   |
 
 `checksums.txt` lists the SHA-1 of each.
+
+### Grafana CLI
+
+`grafana cli` normally only installs signed plugins from the catalogue. If you give
+it `--pluginUrl`, it downloads and extracts an arbitrary archive instead — which is
+the easiest way to install a release build without touching the plugin directory
+yourself:
+
+```bash
+grafana cli \
+  --pluginsDir /var/lib/grafana/plugins \
+  --pluginUrl https://github.com/LinPr/grafana-openobserve-datasource/releases/download/v<version>/grafana-openobserve-datasource-<version>.zip \
+  plugins install linpr-openobserve-datasource
+```
+
+It prints `✔ Downloaded and extracted` followed by the plugin id and version. Use
+the URL of the **asset** (`releases/download/<tag>/<file>`), not the release or tag
+page — pointing it at an HTML page yields the misleading
+`Could not process plugin archive: Error reading file`.
+
+`--pluginUrl` only bypasses the signature check; Grafana still refuses to load an
+unsigned plugin unless you allow it, so start the server with the plugin enabled
+and restart it afterwards:
+
+```bash
+export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=linpr-openobserve-datasource
+grafana server --homepath /usr/share/grafana cfg:default.paths.plugins=/var/lib/grafana/plugins
+```
 
 ### Linux / macOS
 

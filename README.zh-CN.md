@@ -187,12 +187,14 @@ span，由 Explore 画原生瀑布图；**Graph** 从 span 的父子关系推导
 按你的 Grafana 情况选一种：
 
 1. **插件市场** —— 插件上架并签名后，可以从 Grafana Cloud 安装，或用
-   `grafana-cli plugins install linpr-openobserve-datasource`。Release 页面上的未签名构建
-   不能用这种方式安装。
-2. **Release 压缩包** —— 从
+   `grafana cli plugins install linpr-openobserve-datasource`。
+2. **Grafana CLI 直接从 GitHub 装** —— Release 里的包没有签名，但只要用
+   `--pluginUrl` 指定压缩包地址，`grafana cli` 照样能装，省掉手动解压这一步
+   （见 [Grafana CLI](#grafana-cli)）。
+3. **Release 压缩包** —— 从
    [Releases](https://github.com/LinPr/grafana-openobserve-datasource/releases) 下载对应平台的
    压缩包，解压到插件目录，见下文。
-3. **容器镜像** —— 从 `ghcr.io/linpr/grafana-openobserve-datasource` 里把插件拷出来
+4. **容器镜像** —— 从 `ghcr.io/linpr/grafana-openobserve-datasource` 里把插件拷出来
    （见 [Docker](#docker)）。
 
 每个 release 都会发布**每个平台一个压缩包**，外加一个包含全部平台的通用包。
@@ -209,6 +211,30 @@ span，由 Explore 画原生瀑布图；**Graph** 从 span 的父子关系推导
 | `grafana-openobserve-datasource-<version>.windows-amd64.zip` | Windows x86-64                              |
 
 `checksums.txt` 里是每个文件的 SHA-1。
+
+### Grafana CLI
+
+`grafana cli` 默认只能装市场里已签名的插件。但加上 `--pluginUrl` 之后，它会直接下载并解压
+任意地址的压缩包 —— 这是安装 Release 构建最省事的方式，不用自己往插件目录里拷：
+
+```bash
+grafana cli \
+  --pluginsDir /var/lib/grafana/plugins \
+  --pluginUrl https://github.com/LinPr/grafana-openobserve-datasource/releases/download/v<version>/grafana-openobserve-datasource-<version>.zip \
+  plugins install linpr-openobserve-datasource
+```
+
+成功时会打印 `✔ Downloaded and extracted` 加上插件 id 和版本号。注意地址要用**压缩包**的
+（`releases/download/<tag>/<文件名>`），不要用 release 页面或 tag 页面 —— 给它一个 HTML
+页面就会报出那个很容易误导人的 `Could not process plugin archive: Error reading file`。
+
+`--pluginUrl` 只是绕过了签名校验；Grafana 依然不会加载未签名的插件，除非你显式允许，
+所以启动时要带上开关，装完重启：
+
+```bash
+export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=linpr-openobserve-datasource
+grafana server --homepath /usr/share/grafana cfg:default.paths.plugins=/var/lib/grafana/plugins
+```
 
 ### Linux / macOS
 
