@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.6
+
+### Fixed
+
+- The catalogue screenshots had a duplicated entry: "Trace waterfall" pointed at
+  the trace search image, so the listing showed the same view twice. It now
+  uses the waterfall, and the dashboard screenshot is labelled for what it is.
+
 ## 2.3.5
 
 ### Fixed for the plugin catalogue

@@ -24,7 +24,7 @@
     "links": [],
     "screenshots": [
       {
-        "name": "Query editor: Builder and Code",
+        "name": "A dashboard mixing logs, metrics and traces",
         "path": "img/screenshots/dashboard_logs_metrics.png"
       },
       {
@@ -41,7 +41,7 @@
       },
       {
         "name": "Trace waterfall",
-        "path": "img/screenshots/trace_search.png"
+        "path": "img/screenshots/trace_waterfall.png"
       },
       {
         "name": "Service graph",
