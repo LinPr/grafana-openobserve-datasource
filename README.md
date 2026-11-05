@@ -5,7 +5,7 @@
   ![GitHub](https://img.shields.io/github/license/LinPr/grafana-openobserve-datasource?style=flat-square)
   ![Grafana](https://img.shields.io/badge/Grafana-10.4%20%E2%80%93%2012.2-orange?style=flat-square&logo=grafana)
   ![OpenObserve](https://img.shields.io/badge/OpenObserve-Supported-blue?style=flat-square)
-  ![Go](https://img.shields.io/badge/Go-1.24.6+-00ADD8?style=flat-square&logo=go)
+  ![Go](https://img.shields.io/badge/Go-1.27.1+-00ADD8?style=flat-square&logo=go)
   ![TypeScript](https://img.shields.io/badge/TypeScript-5.5.4+-3178C6?style=flat-square&logo=typescript)
   ![Node.js](https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js)
 
@@ -191,78 +191,57 @@ mapping:
 
 ## 🚀 Installation
 
-### Linux
+Every release ships **one archive per platform** plus a universal archive that
+holds all of them:
 
-1. Download the plugin from the [releases page](https://github.com/LinPr/grafana-openobserve-datasource/releases)
-2. Extract it into your Grafana plugins directory and allow unsigned plugins:
-   ```bash
-   # Default plugin path is /var/lib/grafana/plugins/
-   sudo unzip grafana-openobserve-datasource.zip -d /var/lib/grafana/plugins/
-   export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource
-   ```
-3. Restart Grafana
+| Archive | Contents |
+| ------- | -------- |
+| `...-<version>.zip` | all platforms, what Grafana's catalogue expects |
+| `...-<version>.linux-amd64.zip` | Linux x86-64 |
+| `...-<version>.linux-arm64.zip` | Linux ARM64 (Ampere, Graviton, Raspberry Pi 4/5) |
+| `...-<version>.linux-arm.zip` | Linux ARMv7 (32-bit) |
+| `...-<version>.darwin-amd64.zip` | macOS Intel |
+| `...-<version>.darwin-arm64.zip` | macOS Apple Silicon |
+| `...-<version>.windows-amd64.zip` | Windows x86-64 |
+
+`checksums.txt` lists the SHA-1 of each.
+
+### Linux / macOS
+
+```bash
+# Pick the archive for your platform, then:
+sudo unzip grafana-openobserve-datasource-<version>.linux-amd64.zip \
+  -d /var/lib/grafana/plugins/
+export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource
+```
+
+Restart Grafana afterwards.
 
 ### Docker
 
+A multi-architecture image is published for `linux/amd64` and `linux/arm64`, so
+`docker pull` selects the right one:
+
 ```bash
-docker run --rm \
-  -p 3000:3000 \
-  --name=grafana \
+docker run -d --name grafana -p 3000:3000 \
   -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource \
-  -v /root/grafana/plugins/grafana-openobserve-datasource:/var/lib/grafana/plugins/grafana-openobserve-datasource \
+  -v grafana-plugins:/var/lib/grafana/plugins \
+  grafana/grafana
+
+# copy the plugin in from the published image
+docker run --rm -v grafana-plugins:/var/lib/grafana/plugins \
+  ghcr.io/linpr/grafana-openobserve-datasource:latest \
+  cp -a /var/lib/grafana/plugins/grafana-openobserve-datasource /var/lib/grafana/plugins/
+```
+
+Or mount it directly, which needs no volume juggling:
+
+```bash
+docker run -d --name grafana -p 3000:3000 \
+  -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource \
+  --mount type=bind,source=/opt/grafana-plugins/grafana-openobserve-datasource,target=/var/lib/grafana/plugins/grafana-openobserve-datasource \
   grafana/grafana
 ```
-
-### Kubernetes
-
-1. Build an init container that injects the plugin from [docker/Dockerfile](docker/Dockerfile).
-   `ARCH` selects `amd64` or `arm64`; `PROXY` sets a module proxy:
-   ```bash
-   export ARCH=amd64
-   export PROXY=http://<host>:<port>
-   docker build \
-     --target=runtime \
-     --build-arg ARCH=${ARCH} \
-     --build-arg PROXY=${PROXY} \
-     -t grafana-openobserve-datasource:latest-${ARCH} \
-     -f docker/Dockerfile \
-     .
-   ```
-2. Copy the plugin into `${GF_PATHS_PLUGINS}` from an init container and allow it in
-   the Grafana container (the manifest below is a sketch, complete it for your
-   environment):
-   ```yaml
-   initContainers:
-     - command:
-         - sh
-         - -c
-         - rm -rf ${GF_PATHS_PLUGINS}/grafana-openobserve-datasource && mkdir -p ${GF_PATHS_PLUGINS}
-           && cp -r grafana-openobserve-plugin ${GF_PATHS_PLUGINS}/grafana-openobserve-datasource
-       env:
-         - name: GF_PATHS_PLUGINS
-           value: /var/lib/grafana/plugins
-       image: your-registry/grafana-openobserve-datasource
-
-   containers:
-     - env:
-         - name: GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS
-           value: grafana-openobserve-datasource
-       image: grafana/grafana:12.2.0
-       name: grafana
-   ```
-
-### Build locally
-
-```bash
-mage build:linux     # backend binary into dist/
-npm install          # frontend dependencies
-npm run build        # frontend bundle into dist/
-
-cp -r dist openobserve-grafana-plugin
-zip -r openobserve-grafana-plugin.zip openobserve-grafana-plugin
-```
-
----
 
 ## 🔍 Usage
 
@@ -365,7 +344,7 @@ used; the deprecated `Select` is kept instead.
 Requirements:
 
 - **Node.js** 22 or newer
-- **Go** 1.24.6 or newer
+- **Go** 1.27.1 or newer (`go.mod` pins it, so CI and local agree)
 - **OpenObserve** 0.14.7 or newer
 - **Docker** for the local Grafana used during development
 

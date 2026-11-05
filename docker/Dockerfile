@@ -1,40 +1,53 @@
-FROM golang:1.27.2 AS base
-ARG PROXY
+# syntax=docker/dockerfile:1
+#
+# Builds a Grafana plugin image, one per architecture.
+#
+# The image is a *plugin carrier*: it holds the built plugin in the layout
+# Grafana reads from /var/lib/grafana/plugins, so it can be used as an init
+# container or bind-mounted into a Grafana deployment. It is not itself a
+# Grafana image.
+#
+# Everything is named after the plugin id (grafana-openobserve-datasource).
+# The previous revision exported `openobserve-grafana-plugin`, which matched
+# neither the plugin id nor the repository.
+
+FROM --platform=$BUILDPLATFORM node:22-bookworm AS frontend
 WORKDIR /app
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' \
-    /etc/apt/sources.list.d/debian.sources && \
-    apt update && \
-    apt upgrade -y && \
-    apt install zip unzip -y && \
-    export https_proxy=${PROXY} && \
-    git clone https://github.com/magefile/mage.git && \
-    cd mage && \
-    export PATH=$PATH:/usr/local/go/bin && \
-    go run bootstrap.go && \ 
-    wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash && \
-    echo 'export NVM_DIR="$HOME/.nvm"' >> /root/.bashrc && \
-    echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> /root/.bashrc && \
-    echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' >> /root/.bashrc && \
-    . /root/.bashrc && \
-    nvm install 22 && \
-    nvm use 22 && \
-    nvm alias default 22
-
-FROM base AS builder
-ARG ARCH
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY . .
-ENV GOPROXY=https://goproxy.cn,direct
-RUN  if [ ${ARCH} = "amd64" ]; then \
-    mage -v build:linux; \
-    elif [ ${ARCH} = "arm64" ]; then \
-    mage -v build:linuxarm64; \
-    else \
-    echo "Unsupported architecture: ${ARCH}"; exit 1; \
-    fi
-RUN . /root/.bashrc && \
-    nvm use 22 && npm ci && npm run build && \
-    cp -r dist openobserve-grafana-plugin-${ARCH} && \
-    zip openobserve-grafana-plugin-${ARCH}.zip openobserve-grafana-plugin-${ARCH} -r
+RUN npm run build
 
-FROM busybox:1.28 AS runtime
-COPY --from=builder /app/dist openobserve-grafana-plugin
+FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm AS backend
+ARG TARGETOS=linux
+ARG TARGETARCH
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+# Each platform builds its own binary, named the way Grafana looks one up:
+# <executable>_<os>_<arch>. The frontend above is platform independent, so it
+# only runs once even when several architectures are built.
+RUN set -eux; \
+    mkdir -p /out; \
+    suffix=""; \
+    if [ "${TARGETOS}" = "windows" ]; then suffix=".exe"; fi; \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+      go build -trimpath -ldflags="-s -w" \
+      -o "/out/gpx_open_observe_${TARGETOS}_${TARGETARCH}${suffix}" ./pkg
+
+FROM busybox:1.37
+ARG TARGETOS=linux
+ARG TARGETARCH
+
+COPY --from=frontend /app/dist /var/lib/grafana/plugins/grafana-openobserve-datasource
+COPY --from=backend /out/gpx_open_observe_${TARGETOS}_${TARGETARCH} \
+     /var/lib/grafana/plugins/grafana-openobserve-datasource/gpx_open_observe_${TARGETOS}_${TARGETARCH}
+
+LABEL org.opencontainers.image.title="grafana-openobserve-datasource" \
+      org.opencontainers.image.description="OpenObserve data source for Grafana: logs, metrics and traces" \
+      org.opencontainers.image.source="https://github.com/LinPr/grafana-openobserve-datasource" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
+ENV GF_PLUGINS_DIR=/var/lib/grafana/plugins
+WORKDIR /var/lib/grafana/plugins/grafana-openobserve-datasource

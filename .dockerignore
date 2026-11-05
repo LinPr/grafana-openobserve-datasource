@@ -1,0 +1,28 @@
+# Keep the build context small: without this, local caches and build output are
+# shipped to the daemon on every build (the Go and npm caches alone are ~11 GB).
+.gocache/
+.runtime/
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+e2e-results/
+
+# Editor and OS noise
+.git/
+.github/
+.idea/
+.vscode/
+.vscode-test/
+*.swp
+.DS_Store
+
+# Local env
+.env
+.env.*
+*.log
+
+# Build artefacts that must be produced inside the image, not copied in
+*.zip
+*.tgz

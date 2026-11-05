@@ -6,7 +6,7 @@ How to build, run and test the OpenObserve data source plugin.
 
 | Tool | Version | Notes |
 | ---- | ------- | ----- |
-| Go | 1.24.6+ | `go.mod` declares `go 1.24.6`, matching CI |
+| Go | 1.27.1+ | `go.mod` declares `go 1.27.1`; CI and the Docker build use the same version |
 | Node.js | 22+ | used by webpack and jest |
 | Docker | any recent | optional, for the dev Grafana |
 | OpenObserve | 0.14.7+ | the plugin needs the `_search`, `_search_stream` and `prometheus` APIs |

@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24.6'
+          go-version: '1.27.1'
 
       - name: Install mage
         run: go install github.com/magefile/mage@latest
@@ -43,14 +43,36 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      # mage's BuildAll compiles linux (amd64/arm64/arm), windows/amd64 and
+      # darwin (amd64/arm64). Cross-compilation is pure Go here: the backend has
+      # no cgo, so every target builds on the amd64 runner.
       - name: Build backend for every supported platform
         run: mage -v
 
-      - name: Package archive
+      - name: Verify every platform is present
+        run: |
+          set -euo pipefail
+          EXE=$(jq -r .executable dist/plugin.json)
+          missing=0
+          for target in linux_amd64 linux_arm64 linux_arm windows_amd64 darwin_amd64 darwin_arm64; do
+            os=${target%%_*}
+            file="dist/${EXE}_${target}"
+            [ "$os" = "windows" ] && file="${file}.exe"
+            if [ -f "$file" ]; then
+              printf '%-18s %s\n' "$target" "$(du -h "$file" | cut -f1)"
+            else
+              printf '%-18s MISSING (%s)\n' "$target" "$file" >&2
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || { echo "some platforms did not build" >&2; exit 1; }
+
+      - name: Package archives
         run: |
           set -euo pipefail
           PLUGIN_ID=$(jq -r .id dist/plugin.json)
           PLUGIN_VERSION=$(jq -r .info.version dist/plugin.json)
+          EXE=$(jq -r .executable dist/plugin.json)
 
           # The tag must match the version in plugin.json, otherwise the
           # release would carry a misleading name.
@@ -59,17 +81,51 @@ jobs:
             exit 1
           fi
 
+          # 1. The universal archive Grafana expects: one folder holding every
+          #    platform binary, so `grafana-cli plugins install` works from a URL.
+          mv "dist" "${PLUGIN_ID}"
           ARCHIVE="${PLUGIN_ID}-${PLUGIN_VERSION}.zip"
-          mv dist "$PLUGIN_ID"
-          zip -r "$ARCHIVE" "$PLUGIN_ID"
-          sha1sum "$ARCHIVE" | cut -f1 -d' ' > "$ARCHIVE.sha1"
+          zip -qr "$ARCHIVE" "$PLUGIN_ID"
+
+          # 2. One archive per platform, for anyone who only wants their own
+          #    architecture: ~40 MB each instead of ~230 MB for the whole set.
+          declare -A SUFFIX=(
+            [linux_amd64]=linux-amd64
+            [linux_arm64]=linux-arm64
+            [linux_arm]=linux-arm
+            [windows_amd64]=windows-amd64
+            [darwin_amd64]=darwin-amd64
+            [darwin_arm64]=darwin-arm64
+          )
+          for target in "${!SUFFIX[@]}"; do
+            os=${target%%_*}
+            bin="${EXE}_${target}"
+            [ "$os" = "windows" ] && bin="${bin}.exe"
+
+            stage=$(mktemp -d)
+            cp -r "${PLUGIN_ID}" "${stage}/${PLUGIN_ID}"
+            # Keep only this platform's binary, so the zip is single-arch.
+            find "${stage}/${PLUGIN_ID}" -maxdepth 1 -name "${EXE}_*" ! -name "$bin" -delete
+            # NoArch/NoOs entries would tell Grafana the plugin is universal,
+            # which is false once only one binary is shipped.
+            jq 'del(.info.build)' "${stage}/${PLUGIN_ID}/plugin.json" > "${stage}/p.json" \
+              && mv "${stage}/p.json" "${stage}/${PLUGIN_ID}/plugin.json"
+
+            per_arch="${PLUGIN_ID}-${PLUGIN_VERSION}.${SUFFIX[$target]}.zip"
+            ( cd "$stage" && zip -qr "$OLDPWD/$per_arch" "$PLUGIN_ID" )
+            rm -rf "$stage"
+            printf '%-46s %s\n' "$per_arch" "$(du -h "$per_arch" | cut -f1)"
+          done
+
+          sha1sum ./*.zip | awk '{print $1"  "substr($2,3)}' > checksums.txt
+          cat checksums.txt
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             *.zip
-            *.zip.sha1
+            checksums.txt
           generate_release_notes: true
           draft: false
           prerelease: false
