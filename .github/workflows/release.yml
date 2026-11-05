@@ -85,11 +85,13 @@ jobs:
             exit 1
           fi
 
-          # Archive *filenames* drop the org prefix, so downloads read
-          # grafana-openobserve-datasource-*. Only the file name changes: the
-          # directory inside must stay equal to the plugin id, which is what
-          # Grafana and the catalogue validator read.
-          ARCHIVE_BASE="grafana-openobserve-datasource"
+          # The archive is named after the plugin id, so the file name always
+          # matches the directory inside it: `unzip` produces
+          # ${PLUGIN_ID}/, and an archive called anything else would hand the
+          # user a folder that disagrees with the download they clicked. The
+          # directory name itself is not free - Grafana and the catalogue
+          # validator both require it to equal the id from plugin.json.
+          ARCHIVE_BASE="${PLUGIN_ID}"
 
           # 1. The universal archive Grafana expects: one folder holding every
           #    platform binary, so `grafana-cli plugins install` works from a URL.

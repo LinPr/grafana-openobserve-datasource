@@ -1,6 +1,6 @@
 {
-  "name": "open-observe",
-  "version": "2.4.1",
+  "name": "linpr-openobserve-datasource",
+  "version": "2.4.2",
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
     "dev": "webpack -w -c ./.config/webpack/webpack.config.ts --env development",

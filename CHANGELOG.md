@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.4.2
+
+### Changed
+
+- **Release archives are named after the plugin id again:**
+  `linpr-openobserve-datasource-<version>…zip`. 2.4.1 renamed the assets to
+  `grafana-openobserve-datasource-…`, but the directory inside the archive has to
+  stay equal to the plugin id, so `unzip` produced a `linpr-openobserve-datasource`
+  folder from a `grafana-…` download. The two names now agree again.
+- **The npm package is called `linpr-openobserve-datasource`** instead of
+  `open-observe`, matching the plugin id. Nothing in the build depends on it; it is
+  the name `npm pack`, `npm ls` and the lockfile show.
+
 ## 2.4.1
 
 ### Changed
