@@ -22,6 +22,25 @@ old version installed, or re-select the data source on the affected panels.
 Provisioning files need `type: linpr-openobserve-datasource`; keep the existing
 `uid` so dashboards keep resolving once the type is corrected.
 
+## Unreleased
+
+### Fixed
+
+- **The packaged `README.md` was still the `@grafana/create-plugin` template.**
+  `webpack` prefers `src/README.md` when it exists, and that file had never been
+  filled in, so the archive shipped a page of commented-out instructions. It now
+  carries a real introduction, requirements, a getting-started section and the
+  screenshots, which is also what the catalogue displays.
+
+### Documentation
+
+- The root `README.md` gained a table of the identifiers (data source type,
+  backend binary, image), an installation section that covers the catalogue, the
+  release archives and Docker, a provisioning example, an upgrade note for 2.3.x
+  and a troubleshooting table.
+- Added `README.zh-CN.md`, a Chinese translation of the same structure, with
+  language links at the top of both files.
+
 ## 2.3.6
 
 ### Fixed
@@ -117,7 +136,7 @@ Provisioning files need `type: linpr-openobserve-datasource`; keep the existing
 - Trace `Tags` is now `Attributes`, the name OpenTelemetry uses for the
   key/value pairs.
 - The stream picker names its signal (`Log stream`, `Metric stream`, `Trace
-  stream`) instead of the ambiguous "Stream".
+stream`) instead of the ambiguous "Stream".
 - The limit is on its own last row in every editor.
 
 ## 2.3.0
@@ -260,7 +279,7 @@ dashboard queries keep working.
 
 - The ad-hoc filter asked for tag keys without a stream whenever the SQL was
   typed by hand (`query.table` is only set when the picker is used), so Grafana
-  filled the filter dropdown with *stream names* instead of column names. The
+  filled the filter dropdown with _stream names_ instead of column names. The
   stream is now read out of the statement as a fallback.
 - `InlineField` clones its child and always passes `{ invalid, disabled, loading }`,
   so `disabled` set on the child was overwritten with `undefined`: the PromQL mode
@@ -268,7 +287,7 @@ dashboard queries keep working.
   `InlineField`.
 - A computed column aliased onto a name that also exists in the stream was typed
   from the stream schema, so `SELECT count(*) AS "count"` against a stream with a
-  Utf8 `count` column produced a *string* column and every numeric panel broke.
+  Utf8 `count` column produced a _string_ column and every numeric panel broke.
   The observed values now override the schema when the two disagree.
 - An empty result caused by querying through the wrong stream type (a log stream
   selected as `metrics`) silently rendered an empty panel; the backend now reports
