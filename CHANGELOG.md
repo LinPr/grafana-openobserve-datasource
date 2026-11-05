@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.3.4
+
+### Build
+
+- **Multi-architecture image.** `ghcr.io/linpr/grafana-openobserve-datasource`
+  is published as a manifest list for `linux/amd64` and `linux/arm64`, so
+  `docker pull` selects the right one.
+- **One archive per platform.** Releases now carry the universal zip plus
+  separate `linux-amd64`, `linux-arm64`, `linux-arm`, `darwin-amd64`,
+  `darwin-arm64` and `windows-amd64` archives, each about 10 MB instead of
+  230 MB, with `checksums.txt`.
+- **Go 1.27.1** is pinned in `go.mod`, CI and the Docker image, so all three
+  build with the same toolchain the SDK requires.
+- The image and its exports are named after the plugin id; the previous
+  revision exported `openobserve-grafana-plugin`.
+
+### Fixed
+
+- The Dockerfile could not build: `golang:1.27.2` does not exist, the plugin
+  was copied to a directory Grafana does not read, and the architecture had to
+  be passed by hand.
+- `.dockerignore` keeps the build context at 8 MB; it was sending the 11 GB
+  Go cache and 700 MB of `node_modules` to the daemon.
+
 ## 2.3.3
 
 ### Fixed
