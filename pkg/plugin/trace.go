@@ -256,7 +256,7 @@ func traceIDLinks(datasourceUID, stream string, ids []string) []data.DataLink {
 	// waterfall already rendered.
 	query := map[string]any{
 		"refId":      "A",
-		"datasource": map[string]any{"type": "grafana-openobserve-datasource", "uid": datasourceUID},
+		"datasource": map[string]any{"type": "linpr-openobserve-datasource", "uid": datasourceUID},
 		"queryType":  "traces",
 		"queryMode":  "sql",
 		"format":     "auto",

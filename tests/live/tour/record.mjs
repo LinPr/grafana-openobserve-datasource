@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const G = process.env.GRAFANA_URL || 'http://127.0.0.1:3000';
-const DS = { type: 'grafana-openobserve-datasource', uid: process.env.DS_UID || '' };
+const DS = { type: 'linpr-openobserve-datasource', uid: process.env.DS_UID || '' };
 const OUT = path.resolve('tests/live/tour/frames');
 
 fs.rmSync(OUT, { recursive: true, force: true });
@@ -51,7 +51,7 @@ async function scrollCapture(scrollPx = 400, steps = 14, holdFrames = 2) {
 
 async function exploreUrl(q) {
   const left = {
-    datasource: 'grafana-openobserve-datasource',
+    datasource: 'linpr-openobserve-datasource',
     queries: [{ refId: 'A', datasource: DS, ...q }],
     range: { from: 'now-6h', to: 'now' },
   };

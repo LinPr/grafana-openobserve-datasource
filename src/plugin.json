@@ -2,10 +2,10 @@
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
   "type": "datasource",
   "name": "OpenObserve",
-  "id": "grafana-openobserve-datasource",
+  "id": "linpr-openobserve-datasource",
   "metrics": true,
   "backend": true,
-  "executable": "gpx_open_observe",
+  "executable": "linpr-grafana-openobserve-datasource",
   "alerting": true,
   "logs": true,
   "info": {

@@ -7,9 +7,11 @@
 # container or bind-mounted into a Grafana deployment. It is not itself a
 # Grafana image.
 #
-# Everything is named after the plugin id (grafana-openobserve-datasource).
-# The previous revision exported `openobserve-grafana-plugin`, which matched
-# neither the plugin id nor the repository.
+# Everything is named after the plugin id (linpr-openobserve-datasource).
+# The backend binary is named after the project instead, so a stray process or
+# artefact is recognisable as this Grafana plugin.
+ARG PLUGIN_ID=linpr-openobserve-datasource
+ARG PLUGIN_EXE=linpr-grafana-openobserve-datasource
 
 FROM --platform=$BUILDPLATFORM node:22-bookworm AS frontend
 WORKDIR /app
@@ -21,6 +23,7 @@ RUN npm run build
 FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm AS backend
 ARG TARGETOS=linux
 ARG TARGETARCH
+ARG PLUGIN_EXE=linpr-grafana-openobserve-datasource
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -34,20 +37,22 @@ RUN set -eux; \
     if [ "${TARGETOS}" = "windows" ]; then suffix=".exe"; fi; \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
       go build -trimpath -ldflags="-s -w" \
-      -o "/out/gpx_open_observe_${TARGETOS}_${TARGETARCH}${suffix}" ./pkg
+      -o "/out/${PLUGIN_EXE}_${TARGETOS}_${TARGETARCH}${suffix}" ./pkg
 
 FROM busybox:1.37
 ARG TARGETOS=linux
 ARG TARGETARCH
+ARG PLUGIN_ID=linpr-openobserve-datasource
+ARG PLUGIN_EXE=linpr-grafana-openobserve-datasource
 
-COPY --from=frontend /app/dist /var/lib/grafana/plugins/grafana-openobserve-datasource
-COPY --from=backend /out/gpx_open_observe_${TARGETOS}_${TARGETARCH} \
-     /var/lib/grafana/plugins/grafana-openobserve-datasource/gpx_open_observe_${TARGETOS}_${TARGETARCH}
+COPY --from=frontend /app/dist /var/lib/grafana/plugins/${PLUGIN_ID}
+COPY --from=backend /out/${PLUGIN_EXE}_${TARGETOS}_${TARGETARCH} \
+     /var/lib/grafana/plugins/${PLUGIN_ID}/${PLUGIN_EXE}_${TARGETOS}_${TARGETARCH}
 
-LABEL org.opencontainers.image.title="grafana-openobserve-datasource" \
+LABEL org.opencontainers.image.title="linpr-grafana-openobserve-datasource" \
       org.opencontainers.image.description="OpenObserve data source for Grafana: logs, metrics and traces" \
       org.opencontainers.image.source="https://github.com/LinPr/grafana-openobserve-datasource" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 ENV GF_PLUGINS_DIR=/var/lib/grafana/plugins
-WORKDIR /var/lib/grafana/plugins/grafana-openobserve-datasource
+WORKDIR /var/lib/grafana/plugins/${PLUGIN_ID}

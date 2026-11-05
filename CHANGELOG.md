@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.4.0
+
+### Changed
+
+- **Plugin id is now `linpr-openobserve-datasource`.** The catalogue assigns an
+  id per Grafana Cloud org and the first segment must be that org's slug
+  (`grafana` belongs to Grafana Labs, so `grafana-…` was rejected with "Plugin
+  id contains incorrect org."). After an id has been published once it cannot
+  change, so the rename had to happen before the first catalogue upload.
+- **Backend executable is now `linpr-grafana-openobserve-datasource`** instead
+  of `gpx_open_observe`, so a running process or a stray file is identifiable as
+  a Grafana plugin. The binary name is declared in `plugin.json` and discovered
+  by Grafana, so nothing else has to know it.
+
+### Upgrading
+
+The datasource type changed, so existing dashboards and provisioned datasources
+pointing at `grafana-openobserve-datasource` will not resolve. Either keep the
+old version installed, or re-select the data source on the affected panels.
+Provisioning files need `type: linpr-openobserve-datasource`; keep the existing
+`uid` so dashboards keep resolving once the type is corrected.
+
 ## 2.3.6
 
 ### Fixed

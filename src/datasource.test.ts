@@ -19,7 +19,7 @@ function newDatasource(jsonData: Partial<OpenObserveOptions> = {}): OpenObserveD
   const settings = {
     id: 1,
     uid: 'oo',
-    type: 'grafana-openobserve-datasource',
+    type: 'linpr-openobserve-datasource',
     name: 'OpenObserve',
     url: 'http://localhost:5080',
     jsonData,

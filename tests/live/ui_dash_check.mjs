@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 
 const GRAFANA = process.env.GRAFANA_URL || 'http://127.0.0.1:3000';
-const DS = { type: 'grafana-openobserve-datasource', uid: 'P4A5AAF418F5D059C' };
+const DS = { type: 'linpr-openobserve-datasource', uid: 'P4A5AAF418F5D059C' };
 
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const ctx = await browser.newContext({ viewport: { width: 1700, height: 1100 } });

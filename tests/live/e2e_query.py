@@ -16,7 +16,7 @@ def query(model, frm=None, to=None, max_points=200):
         "queries": [
             {
                 "refId": "A",
-                "datasource": {"type": "grafana-openobserve-datasource", "uid": DS_UID},
+                "datasource": {"type": "linpr-openobserve-datasource", "uid": DS_UID},
                 "intervalMs": 60000,
                 "maxDataPoints": max_points,
                 **model,

@@ -169,7 +169,7 @@ jobs:
       - name: Execute permissions on binary
         if: needs.build.outputs.has-backend == 'true'
         run: |
-          chmod +x ./dist/gpx_*
+          chmod +x ./dist/linpr-grafana-openobserve-datasource*
 
       - name: Setup Node.js environment
         uses: actions/setup-node@v4
@@ -208,7 +208,7 @@ jobs:
       - name: Docker logs
         if: ${{ always() && steps.run-tests.outcome == 'failure' }}
         run: |
-          docker logs grafana-openobserve-datasource >& grafana-server.log
+          docker logs linpr-openobserve-datasource >& grafana-server.log
 
       - name: Stop grafana docker
         run: docker compose down

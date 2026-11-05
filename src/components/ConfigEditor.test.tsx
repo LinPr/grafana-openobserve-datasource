@@ -17,7 +17,7 @@ function renderConfig(jsonData: Partial<OpenObserveOptions> = {}, extra: Record<
     uid: 'oo',
     orgId: 1,
     name: 'OpenObserve',
-    type: 'grafana-openobserve-datasource',
+    type: 'linpr-openobserve-datasource',
     access: 'proxy',
     url: 'http://localhost:5080',
     user: '',

@@ -210,9 +210,9 @@ holds all of them:
 
 ```bash
 # Pick the archive for your platform, then:
-sudo unzip grafana-openobserve-datasource-<version>.linux-amd64.zip \
+sudo unzip linpr-openobserve-datasource-<version>.linux-amd64.zip \
   -d /var/lib/grafana/plugins/
-export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource
+export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=linpr-openobserve-datasource
 ```
 
 Restart Grafana afterwards.
@@ -224,22 +224,22 @@ A multi-architecture image is published for `linux/amd64` and `linux/arm64`, so
 
 ```bash
 docker run -d --name grafana -p 3000:3000 \
-  -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource \
+  -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=linpr-openobserve-datasource \
   -v grafana-plugins:/var/lib/grafana/plugins \
   grafana/grafana
 
 # copy the plugin in from the published image
 docker run --rm -v grafana-plugins:/var/lib/grafana/plugins \
   ghcr.io/linpr/grafana-openobserve-datasource:latest \
-  cp -a /var/lib/grafana/plugins/grafana-openobserve-datasource /var/lib/grafana/plugins/
+  cp -a /var/lib/grafana/plugins/linpr-openobserve-datasource /var/lib/grafana/plugins/
 ```
 
 Or mount it directly, which needs no volume juggling:
 
 ```bash
 docker run -d --name grafana -p 3000:3000 \
-  -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource \
-  --mount type=bind,source=/opt/grafana-plugins/grafana-openobserve-datasource,target=/var/lib/grafana/plugins/grafana-openobserve-datasource \
+  -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=linpr-openobserve-datasource \
+  --mount type=bind,source=/opt/grafana-plugins/linpr-openobserve-datasource,target=/var/lib/grafana/plugins/linpr-openobserve-datasource \
   grafana/grafana
 ```
 

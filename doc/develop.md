@@ -55,7 +55,7 @@ go build ./...
 Cross-compile the binary Grafana loads:
 
 ```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/gpx_open_observe_linux_amd64 ./pkg
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/linpr-grafana-openobserve-datasource_linux_amd64 ./pkg
 ```
 
 Or use mage, which builds every platform into `dist/`:
@@ -82,7 +82,7 @@ README into `dist/`, so `dist/` is the directory Grafana loads.
 The plugin is unsigned, so Grafana has to be told to load it.
 
 ```bash
-export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-openobserve-datasource
+export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=linpr-openobserve-datasource
 docker compose up --build
 ```
 
@@ -142,7 +142,7 @@ See [tests/live/README.md](../tests/live/README.md).
 
 ```bash
 npm run build
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/gpx_open_observe_linux_amd64 ./pkg
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/linpr-grafana-openobserve-datasource_linux_amd64 ./pkg
 mage -v                       # or build each platform explicitly
 npx @grafana/sign-plugin@latest
 ```
