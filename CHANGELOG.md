@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.3.5
+
+### Fixed for the plugin catalogue
+
+- `grafanaDependency` is now `>=10.4.0-0`. The catalogue requires a
+  prerelease-inclusive range, otherwise Grafana nightly and enterprise builds
+  are not considered compatible and the archive is rejected at upload.
+- Backend binaries are chmod-ed to 0755 in the release job. The catalogue
+  requires exactly that, and `mage` otherwise inherits the runner's umask.
+- Added catalogue screenshots, so the listing is not a blank page.
+
+### Security
+
+- Resolved every `osv-scanner` finding in the dependency tree: 58
+  vulnerabilities (2 critical) down to none, using `overrides` to pin patched
+  releases of transitive packages (`ws`, `fast-uri`, `js-yaml`, `postcss`,
+  `nanoid`, `form-data`, `flatted`, `serialize-javascript`, `source-map-js`,
+  `websocket-driver`, `browserslist`).
+- `@grafana/*` build dependencies moved to 12.4.14. They cannot go to 13.x:
+  those require React 19, while Grafana 10.4 ships React 18, and dropping 10.x
+  support is not on the table.
+
 ## 2.3.4
 
 ### Build

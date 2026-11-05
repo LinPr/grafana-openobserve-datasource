@@ -53,6 +53,10 @@ jobs:
         run: |
           set -euo pipefail
           EXE=$(jq -r .executable dist/plugin.json)
+          # The plugin catalogue requires exactly 0755 on the binaries. mage
+          # inherits the runner's umask, so set it explicitly rather than
+          # depend on what that happens to be.
+          chmod 0755 dist/"${EXE}"_*
           missing=0
           for target in linux_amd64 linux_arm64 linux_arm windows_amd64 darwin_amd64 darwin_arm64; do
             os=${target%%_*}

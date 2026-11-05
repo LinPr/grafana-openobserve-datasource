@@ -22,12 +22,41 @@
       "large": "img/logo.png"
     },
     "links": [],
-    "screenshots": [],
+    "screenshots": [
+      {
+        "name": "Query editor: Builder and Code",
+        "path": "img/screenshots/dashboard_logs_metrics.png"
+      },
+      {
+        "name": "Logs in Explore",
+        "path": "img/screenshots/explore_logs.png"
+      },
+      {
+        "name": "The query editor",
+        "path": "img/screenshots/query_editor.png"
+      },
+      {
+        "name": "Trace search",
+        "path": "img/screenshots/trace_search.png"
+      },
+      {
+        "name": "Trace waterfall",
+        "path": "img/screenshots/trace_search.png"
+      },
+      {
+        "name": "Service graph",
+        "path": "img/screenshots/trace_graph.png"
+      },
+      {
+        "name": "Datasource settings",
+        "path": "img/screenshots/config_editor.png"
+      }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },
   "dependencies": {
-    "grafanaDependency": ">=10.4.0",
+    "grafanaDependency": ">=10.4.0-0",
     "plugins": []
   },
   "annotations": true,
