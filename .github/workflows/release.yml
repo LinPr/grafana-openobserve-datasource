@@ -127,14 +127,64 @@ jobs:
             printf '%-46s %s\n' "$per_arch" "$(du -h "$per_arch" | cut -f1)"
           done
 
-          sha1sum ./*.zip | awk '{print $1"  "substr($2,3)}' > checksums.txt
+          # One checksum per archive, in its own file.
+          #
+          # The submission form takes a single hash for the archive being
+          # uploaded, and a combined checksums.txt makes it easy to copy the
+          # wrong line -- the first line was the darwin build while the
+          # universal archive is what gets submitted. A sidecar with nothing
+          # but the hash removes the ambiguity.
+          for archive in ./*.zip; do
+            sha1sum "$archive" | cut -d' ' -f1 > "${archive}.sha1"
+            md5sum  "$archive" | cut -d' ' -f1 > "${archive}.md5"
+          done
+
+          # The combined list stays for scripted verification, universal
+          # archive first so it is the obvious first line.
+          # The archive name drops the org prefix; the directory inside keeps
+          # the plugin id.
+          UNIVERSAL="${ARCHIVE_BASE}-${PLUGIN_VERSION}.zip"
+          # Print "<hash>  <name>" without the "./" that the glob adds. A fixed
+          # character offset would eat into a bare filename.
+          sha1line() { sha1sum "$1" | awk '{ n=$2; sub(/^\.\//, "", n); print $1"  "n }'; }
+          {
+            sha1line "./$UNIVERSAL"
+            for archive in ./*.zip; do
+              [ "$archive" = "./$UNIVERSAL" ] && continue
+              sha1line "$archive"
+            done
+          } > checksums.txt
           cat checksums.txt
+          echo
+          echo "Upload ${UNIVERSAL} and use this checksum:"
+          cat "${UNIVERSAL}.sha1"
+
+          # The catalogue form takes one hash for one archive. Show the pair
+          # where the submitter will actually look for it.
+          {
+            echo "### Submit this archive"
+            echo
+            echo '```'
+            echo "${UNIVERSAL}"
+            echo '```'
+            echo
+            echo "### Checksum (SHA-1)"
+            echo
+            echo '```'
+            cat "${UNIVERSAL}.sha1"
+            echo '```'
+            echo
+            echo "Every archive also has a \`.sha1\` and \`.md5\` sidecar, and"
+            echo '`checksums.txt` lists the universal archive on the first line.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             *.zip
+            *.zip.sha1
+            *.zip.md5
             checksums.txt
           generate_release_notes: true
           draft: false

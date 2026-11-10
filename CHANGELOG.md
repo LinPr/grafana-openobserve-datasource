@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.4.2
+
+### Fixed
+
+- **The published checksums could not be used for a catalogue submission.** A
+  single `checksums.txt` listed seven archives with the darwin build on the
+  first line, while the archive meant for the catalogue is the universal one
+  further down. Copying the obvious first hash made the catalogue reject the
+  upload with *"The submitted plugin archive checksum does not match the
+  downloaded archive."*
+
+  Every archive now publishes its own `.sha1` and `.md5` sidecar containing
+  nothing but the hash, the universal archive is the first line of
+  `checksums.txt`, and the release job prints the filename/checksum pair in its
+  summary.
+
+
 ## 2.4.1
 
 ### Changed
