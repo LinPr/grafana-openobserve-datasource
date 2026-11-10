@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.4.3
+
+### Security
+
+- **Go 1.27.4.** The catalogue's binary scan reported 16 standard-library
+  vulnerabilities against the Go 1.27.1 build and asked for 1.27.3 or later.
+  `go.mod`, both workflows and the Docker build now pin 1.27.4.
+- **`github.com/klauspost/compress` v1.20.4 and `golang.org/x/net` v0.62.0**
+  (GO-2026-6865, GO-2026-6860, GO-2026-6866). Both were reachable from the
+  plugin binary, not just the test build.
+- **G402 (`InsecureSkipVerify`) is annotated rather than removed.** Skipping
+  certificate verification is a deliberate, opt-in datasource setting for
+  OpenObserve behind a self-signed certificate: it is off by default and
+  surfaced in the form with a warning. The line now carries a `#nosec G402`
+  with that justification, so the finding is a reviewed decision instead of
+  an unreported risk.
+
+Verified with `gosec ./pkg/...` (0 issues, 1 justified `#nosec`),
+`govulncheck ./...` and `govulncheck -mode=binary` on a freshly built 1.27.4
+binary: no vulnerabilities found in either mode.
+
+
 ## 2.4.2
 
 ### Fixed

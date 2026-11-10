@@ -119,7 +119,13 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		ForceAttemptHTTP2:     true,
 	}
 	if cfg.InsecureSkipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		// Skipping verification is a deliberate, opt-in datasource setting for
+		// OpenObserve deployments behind a self-signed certificate. The flag is
+		// off by default, surfaced in the datasource form with a warning, and
+		// documented; callers that leave it alone get a fully verified
+		// connection.
+		// #nosec G402 -- user-controlled toggle, see TLSInsecureSkipVerify.
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // #nosec G402 -- opt-in TLS skip
 	}
 
 	if cfg.Organization == "" {
