@@ -1,6 +1,6 @@
 module github.com/LinPr/grafana-openobserve-datasource
 
-go 1.27.4
+go 1.27.3
 
 require github.com/grafana/grafana-plugin-sdk-go v0.298.0
 

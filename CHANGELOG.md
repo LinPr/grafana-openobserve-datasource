@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.4.4
+
+### Fixed
+
+- **The source scan could not run at all.** Pinning `go 1.27.4` made the
+  catalogue's validator fail with *"Plugin source requires Go 1.27.4 or later;
+  this validator supports Go 1.27.3"* -- a hard block, unlike the warnings
+  beside it. `go.mod`, both workflows and the Docker build now pin **1.27.3**,
+  which is the version the Go advisories name as the fix and the newest the
+  validator can handle.
+- The G402 suppression is kept next to the code with its justification. It is
+  reported as a warning rather than a blocker: skipping TLS verification is the
+  datasource's opt-in setting for OpenObserve behind a private CA, so removing
+  the code would remove the feature.
+
+
 ## 2.4.3
 
 ### Security
