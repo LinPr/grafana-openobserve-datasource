@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.4.5
+
+### Fixed
+
+- **Both Go checks can now pass at once.** They pull in opposite directions:
+
+  - the catalogue's source scan only runs toolchains up to **1.27.3**, and a
+    `go` directive above that is a hard block ("Plugin source requires Go
+    1.27.4 or later; this validator supports Go 1.27.3");
+  - `GO-2026-6859` in `net/http` is only fixed in **1.27.4**, so a binary built
+    with 1.27.3 fails the vulnerability scan.
+
+  `go.mod` keeps `go 1.27.3` as the compatibility floor, which the validator can
+  parse, while CI and the Docker build use 1.27.4, which produces a binary with
+  no known stdlib vulnerabilities. Building above the floor is the normal Go
+  arrangement: the directive declares what the code needs, not which patch the
+  binary is compiled with.
+
+  Verified by scanning the released binary: `go version` reports go1.27.4 and
+  `govulncheck -mode=binary` reports no vulnerabilities.
+
+
 ## 2.4.4
 
 ### Fixed

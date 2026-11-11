@@ -30,9 +30,15 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      # Build with the newest patch even though go.mod declares 1.27.3.
+      #
+      # `go` in go.mod is the compatibility floor, and the catalogue's source
+      # scan can only run toolchains up to 1.27.3; a higher floor is a hard
+      # block. The binary still needs 1.27.4, which fixes GO-2026-6859 in
+      # net/http, so the build uses 1.27.4 while the floor stays at 1.27.3.
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
 
       - name: Install mage
         run: go install github.com/magefile/mage@latest
